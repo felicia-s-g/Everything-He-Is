@@ -1,0 +1,29 @@
+{
+  "data": [
+    {
+      "name": "John Doe",
+      "tags": "red,blue,green",
+      "image": "0.jpg"
+    },
+    {
+      "name": "John Doe",
+      "tags": "green",
+      "image": "1.jpg"
+    },
+    {
+      "name": "John Doe",
+      "tags": "red,blue",
+      "image": "2.jpg"
+    },
+    {
+      "name": "John Doe",
+      "tags": "yellow",
+      "image": "3.jpg"
+    },
+    {
+      "name": "John Doe",
+      "tags": "red",
+      "image": "4.jpg"
+    }
+  ]
+}

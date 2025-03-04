@@ -1,0 +1,123 @@
+body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  /* display: flex;
+  justify-content: center;
+  align-items: center; */
+}
+
+#container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 5;
+}
+
+#emotion {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  height: auto;
+  width: auto;
+  font-size: 100px;
+  font-weight: bold;
+  background-color: #eee;
+  color: #000;
+  border-radius: 10px;
+  padding: 20px 50px;
+  font-family: "Helvetica neue", Helvetica, sans-serif;
+  width: auto;
+  transform: translate(-50%, -50%);
+  display: none;
+}
+
+canvas {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  z-index: 10;
+  width: 720px;
+  height: 560px;
+  height: auto;
+  transform-origin: bottom left;
+  transform: scale(0.5);
+}
+
+video {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: auto;
+  width: 720px;
+  height: 560px;
+  transform-origin: bottom left;
+  transform: scale(0.5);
+}
+
+.toggle-button-demo {
+  text-align: center;
+}
+h4 {
+  font-size: 20px;
+  color: #333;
+}
+.toggle-ios {
+  display: none;
+}
+.toggle-ios + .toggle-btn {
+  outline: 0;
+  display: block;
+  width: 40em;
+  margin: 0 auto;
+  height: 20em;
+  position: relative;
+  cursor: pointer;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  background: #fbfbfb;
+  border-radius: 10em;
+  padding: 2px;
+  -webkit-transition: all 0.4s ease;
+  transition: all 0.4s ease;
+  border: 1px solid #e8eae9;
+}
+.toggle-ios + .toggle-btn:after {
+  position: relative;
+  display: block;
+  content: "";
+  width: 50%;
+  height: 100%;
+  left: 0;
+  border-radius: 10em;
+  background: #fbfbfb;
+  transition: left 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275),
+    padding 0.3s ease, margin 0.3s ease;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 4px 0 rgba(0, 0, 0, 0.08);
+}
+.toggle-ios:checked + .toggle-btn {
+  background: rgb(0,255,0);
+}
+.toggle-ios:checked + .toggle-btn:after {
+  left: 50%;
+}
+
+
+.toggle-container {
+  position: fixed;
+  z-index: 100;
+  width: 100%;
+  height: 100vh;
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  cursor: pointer;
+}

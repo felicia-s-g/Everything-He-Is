@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <link href="src/style.css" rel="stylesheet" />
+  </head>
+  <body>
+    <section id="container">
+      <div id="rect">
+        <video autoplay="autoplay" muted id="movie" loop>
+          <source src="src/video/gustav.mp4" type="video/mp4" />
+        </video>
+      </div>
+      <video
+        class="videobox canvasbox"
+        autoplay="autoplay"
+        id="myvideo"
+      ></video>
+      <canvas id="canvas" class="border canvasbox"></canvas>
+    </section>
+  </body>
+  <script src="https://cdn.jsdelivr.net/npm/handtrackjs/dist/handtrack.min.js"></script>
+  <script src="src/handTrackingInit.js"></script>
+  <script src="src/app.js"></script>
+</html>

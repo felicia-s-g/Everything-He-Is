@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <link href="src/style.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div style="position: fixed; padding: 0px 5px; top: 0px; left: 0px; font-family: 'Courier New', Courier, monospace; font-size:11px;">
+      <p>Face detction: <br/>Check the approximation of the face.</p>
+    </div>
+    <div id="emotion"></div>
+    <div id="container"></div>
+    <video id="video" width="720" height="560" autoplay muted></video>
+  </body>
+  <script src="https://cdn.jsdelivr.net/npm/handtrackjs/dist/handtrack.min.js"></script>
+  <script src="src/face-api.min.js"></script>
+  <script src="src/init-face-api.js"></script>
+  <script src="src/app.js"></script>
+</html>

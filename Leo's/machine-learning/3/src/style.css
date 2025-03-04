@@ -1,0 +1,58 @@
+/* Default stylesheet and tools */
+body,
+html {
+  background: rgb(245, 245, 245);
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+#container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: auto;
+}
+
+canvas {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 300px;
+}
+
+#myvideo {
+  display: none;
+}
+
+#rect {
+  width: auto;
+  height: auto;
+  transition: all 0.2s ease;
+  color: white;
+  line-height: 1;
+  font-size: 11px;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-origin: center center;
+  transform: translate(-50%, -50%);
+  border-radius: 5px;
+}
+
+#rect > video {
+  border-radius: 5px;
+  position: relative;
+  width: 100%;
+  display: flex;
+  pointer-events: auto !important;
+  justify-content: center;
+  align-items: center;
+  overflow: auto;
+}
