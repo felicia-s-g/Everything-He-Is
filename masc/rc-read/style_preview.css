@@ -1,0 +1,54 @@
+body {
+    margin: 0;
+    padding: 0;
+    background-color: #f4f4f4;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+}
+
+#preview-container {
+    width: 70%; /* change this value for how zoomed in the view is */
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    padding: 30px 90px; /* spacing between pictures */
+    position: relative;
+    overflow-y: auto; /* enables scrolling */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+#image-list {
+    display: flex;
+    flex-direction: column;
+    gap: 60px; /* white space */
+    align-items: flex-end;
+    width: 100%;
+}
+
+.preview-image {
+    width: 150px;
+    opacity: 0.6;
+    transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+    position: relative;
+}
+
+.preview-image.selected {
+    width: 320px;
+    opacity: 1;
+    transform: scale(1.15);
+    z-index: 2; /* prevents overlap */
+}
+
+.preview-image:hover {
+    cursor: pointer;
+    opacity: 0.9;
+}
+
+#preview-container::-webkit-scrollbar {
+    display: none;
+}
