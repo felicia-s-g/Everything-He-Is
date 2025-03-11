@@ -15,4 +15,4 @@ const imagePath = "src/archive";
         }
         
         window.addEventListener("storage", updateFullscreen);
-        updateFullscreen()
+        updateFullscreen();

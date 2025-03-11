@@ -32,4 +32,4 @@ const imagePath = "src/archive";
             });
         }
         
-        updatePreview()
+        updatePreview();
