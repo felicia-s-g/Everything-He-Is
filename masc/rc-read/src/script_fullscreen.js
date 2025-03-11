@@ -1,5 +1,5 @@
 const imagePath = "src/archive";
-        const totalImages = 121;
+        const totalImages = 123;
         let images = Array.from({ length: totalImages }, (_, i) => `${imagePath}/MASC_ARCH_${String(i + 1).padStart(5, "0")}.jpg`);
         
         function updateFullscreen() {
@@ -15,4 +15,4 @@ const imagePath = "src/archive";
         }
         
         window.addEventListener("storage", updateFullscreen);
-        updateFullscreen();
+        updateFullscreen()
