@@ -10,7 +10,7 @@ body {
 }
 
 #preview-container {
-    width: 70%; /* change this value for how zoomed in the view is */
+    width: 90%; /* change this value for how zoomed in the view is */
     height: 100vh;
     display: flex;
     flex-direction: column;
@@ -31,7 +31,7 @@ body {
 }
 
 .preview-image {
-    width: 150px;
+    width: 200px;
     opacity: 0.6;
     transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
     position: relative;

@@ -1,5 +1,5 @@
 const imagePath = "src/archive";
-        const totalImages = 54;
+        const totalImages = 121;
         let images = Array.from({ length: totalImages }, (_, i) => `${imagePath}/MASC_ARCH_${String(i + 1).padStart(5, "0")}.jpg`);
         
         // shuffles images
