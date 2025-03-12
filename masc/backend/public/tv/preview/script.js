@@ -16,10 +16,7 @@ function initWebSocket() {
   }
 
   // Create a new WebSocket connection
-  // Use relative URL to connect to the same host
-  const wsUrl = `${
-    window.location.protocol === "https:" ? "wss:" : "ws:"
-  }//${window.location.host}/ws/data-output`;
+  const wsUrl = `wss://${window.location.hostname}/ws/data-output`;
   wsConnection = new WebSocket(wsUrl);
 
   // Connection opened

@@ -1,6 +1,6 @@
 const express = require("express");
 const path = require("path");
-const http = require("http");
+const https = require("https");
 const WebSocket = require("ws");
 const cors = require("cors");
 const {
@@ -8,13 +8,17 @@ const {
   generateSignal,
   normalizeSensorData,
   getAccelerationIndex,
-} = require(
-  "./utils",
-);
+} = require("./utils");
 const fs = require("fs");
 
+// SSL certificate configuration
+const sslOptions = {
+  key: fs.readFileSync("./private/hub-selfsigned.key"),
+  cert: fs.readFileSync("./certs/hub-selfsigned.crt"),
+};
+
 const app = express();
-const server = http.createServer(app);
+const server = https.createServer(sslOptions, app);
 
 // Baseline calibration values for sensor data
 let baseline = {
@@ -26,7 +30,7 @@ let baseline = {
 // Enable CORS for all routes
 app.use(cors());
 
-// Create a single WebSocket server
+// Create WebSocket server
 const wss = new WebSocket.Server({
   server,
   perMessageDeflate: false,
@@ -170,52 +174,45 @@ function broadcastOrientation(orientation) {
       client.path === "/ws/raw-data-output" &&
       client.readyState === WebSocket.OPEN
     ) {
-      client.send(
-        JSON.stringify({
-          type: "orientation",
-          timestamp: new Date().toISOString(),
-          orientation,
-        }),
-      );
+      client.send(JSON.stringify({
+        type: "orientation",
+        timestamp: new Date().toISOString(),
+        orientation,
+      }));
     }
   });
 }
 
-// Broadcast punch intensity to all clients connected to data-output
 function broadcastPunchIntensity(intensity) {
   wss.clients.forEach((client) => {
-    console.log(client.path);
     if (
       client.path === "/ws/data-output" && client.readyState === WebSocket.OPEN
     ) {
-      const data = {
+      client.send(JSON.stringify({
         type: "punch_intensity",
         timestamp: new Date().toISOString(),
         punchIntensity: intensity,
-      };
-      client.send(JSON.stringify(data));
+      }));
     }
   });
 }
 
-// Broadcast raw sensor data to all clients connected to raw-data-output
 function broadcastRawSensorData(sensorData) {
   wss.clients.forEach((client) => {
     if (
       client.path === "/ws/raw-data-output" &&
       client.readyState === WebSocket.OPEN
     ) {
-      const data = {
+      client.send(JSON.stringify({
         type: "raw_sensor_data",
         timestamp: new Date().toISOString(),
         sensorData: sensorData,
-      };
-      client.send(JSON.stringify(data));
+      }));
     }
   });
 }
 
-// WebSocket connection handling for both data input and output
+// WebSocket connection handling
 wss.on("connection", (ws, req) => {
   // Store the path in the WebSocket object for later reference
   ws.path = req.url;
@@ -226,7 +223,6 @@ wss.on("connection", (ws, req) => {
     ws.on("message", (message) => {
       try {
         const sensorData = JSON.parse(message.toString());
-
         const validSensorData = validateSensorData(sensorData);
 
         if (validSensorData) {
@@ -258,22 +254,18 @@ wss.on("connection", (ws, req) => {
         console.error("Error processing sensor data:", error);
       }
     });
-    // this is the endpoint from which the server sends data to whoever is connected (tv UIs)
   } else if (req.url === "/ws/data-output") {
     // Send initial connection confirmation
-    const data = {
+    ws.send(JSON.stringify({
       timestamp: new Date().toISOString(),
       message: "Connected to punch intensity stream",
-    };
-    ws.send(JSON.stringify(data));
-    // This is used to send debug data
+    }));
   } else if (req.url === "/ws/raw-data-output") {
     // Send initial connection confirmation for raw data stream
-    const data = {
+    ws.send(JSON.stringify({
       timestamp: new Date().toISOString(),
       message: "Connected to raw sensor data stream",
-    };
-    ws.send(JSON.stringify(data));
+    }));
   }
 
   ws.on("error", (error) => {
@@ -285,12 +277,12 @@ wss.on("connection", (ws, req) => {
   });
 });
 
-// Add error handling for the WebSocket server
+// Error handling for WebSocket server
 wss.on("error", (error) => {
   console.error("WebSocket server error:", error);
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 443;
 server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`HTTPS Server running on port ${PORT}`);
 });

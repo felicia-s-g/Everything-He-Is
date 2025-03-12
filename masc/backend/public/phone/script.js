@@ -28,8 +28,7 @@ let isCalibrated = false;
 let updateRate = 1 / 60; // Sensor refresh rate
 
 // WebSocket connection
-const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-const ws = new WebSocket(`${protocol}//${window.location.host}/ws/data-input`);
+const ws = new WebSocket(`wss://${window.location.hostname}/ws/data-input`);
 
 ws.onopen = () => {
   console.log("WebSocket connection established");
