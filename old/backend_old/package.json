@@ -4,7 +4,7 @@
   "description": "Simple Express server with WebSocket support",
   "main": "index.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node index.js"
   },
   "keywords": [],
   "author": "",

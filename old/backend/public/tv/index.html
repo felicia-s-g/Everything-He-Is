@@ -4,83 +4,57 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Image Grid</title>
+  <title>TV Interface</title>
   <style>
     body {
+      font-family: Arial, sans-serif;
       margin: 0;
-      padding: 20px;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
       background-color: #f0f0f0;
     }
 
-    .image-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 20px;
-      padding: 20px;
-    }
-
-    .image-item {
-      aspect-ratio: 16/9;
-      width: 100%;
-      border-radius: 8px;
-      overflow: hidden;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      transition: transform 0.2s ease-in-out;
-    }
-
-    .image-item:hover {
-      transform: scale(1.02);
-    }
-
-    .image-item img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-
-    .loading {
+    .container {
       text-align: center;
-      padding: 2rem;
-      font-family: Arial, sans-serif;
-      color: #666;
+    }
+
+    h1 {
+      margin-bottom: 30px;
+    }
+
+    .button-container {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+    }
+
+    .button {
+      padding: 15px 30px;
+      background-color: #4CAF50;
+      color: white;
+      text-decoration: none;
+      border-radius: 5px;
+      font-size: 18px;
+      transition: background-color 0.3s;
+    }
+
+    .button:hover {
+      background-color: #45a049;
     }
   </style>
 </head>
 
 <body>
-  <div class="image-grid" id="imageGrid">
-    <div class="loading">Loading images...</div>
+  <div class="container">
+    <h1>TV Interface</h1>
+    <div class="button-container">
+      <a href="/tv/fullscreen" class="button">Fullscreen View</a>
+      <a href="/tv/preview" class="button">Preview View</a>
+    </div>
   </div>
-
-  <script>
-    async function loadImages() {
-      try {
-        const response = await fetch('/api/images');
-        const images = await response.json();
-
-        const imageGrid = document.getElementById('imageGrid');
-        imageGrid.innerHTML = ''; // Clear loading message
-
-        images.forEach(image => {
-          const imageItem = document.createElement('div');
-          imageItem.className = 'image-item';
-
-          const img = document.createElement('img');
-          img.src = image.url;
-          img.alt = image.alt;
-
-          imageItem.appendChild(img);
-          imageGrid.appendChild(imageItem);
-        });
-      } catch (error) {
-        console.error('Error loading images:', error);
-        document.getElementById('imageGrid').innerHTML = '<div class="loading">Error loading images. Please try again later.</div>';
-      }
-    }
-
-    // Load images when the page loads
-    document.addEventListener('DOMContentLoaded', loadImages);
-  </script>
 </body>
 
 </html>

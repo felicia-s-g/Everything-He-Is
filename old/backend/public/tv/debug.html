@@ -4,64 +4,278 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Debug Data Output</title>
+  <title>Phone Sensor Visualization</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      margin: 20px;
-      background-color: #f5f5f5;
+      margin: 0;
+      padding: 20px;
+      background-color: #FAFAFA;
+      display: flex;
+      flex-direction: column;
+      height: 80vh;
+      color: #333;
+    }
+
+    .container {
+      display: flex;
+      flex: 1;
+      gap: 20px;
+    }
+
+    .visualization-container {
+      flex: 1;
+      background: white;
+      height: 700px;
+      padding: 16px;
+      border-radius: 16px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      /* justify-content: center; */
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      text-align: center;
+      margin-bottom: 16px;
+    }
+
+    #phone-container {
+      width: 100%;
+      height: 300px;
+      position: relative;
+      perspective: 1000px;
+    }
+
+    #phone-model {
+      width: 100px;
+      height: 200px;
+      background: linear-gradient(145deg, grey, grey);
+      border-radius: 12px;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform-style: preserve-3d;
+      transform: translate(-50%, -50%) rotateX(0deg) rotateY(0deg) rotateZ(0deg);
+      transition: transform 0.1s linear;
+    }
+
+    #phone-screen {
+      width: 90px;
+      height: 160px;
+      background: #1A1A1A;
+      border-radius: 8px;
+      position: absolute;
+      top: 20px;
+      left: 5px;
     }
 
     #data-container {
+      flex: 1;
+      height: 700px;
       background-color: white;
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-      margin-top: 20px;
+      padding: 16px;
+      border-radius: 16px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      overflow-y: auto;
     }
+      /* display: flex;
+      flex-direction: column;
+      align-items: center; */
 
     .status {
-      padding: 10px;
-      margin-bottom: 10px;
-      border-radius: 4px;
+      padding: 12px;
+      margin-bottom: 16px;
+      border-radius: 8px;
+      text-align: center;
+      font-weight: 500;
+      font-size: 14px;
     }
 
     .connected {
-      background-color: #d4edda;
-      color: #155724;
+      background: #E6F4EA;
+      color: #256029;
     }
 
     .disconnected {
-      background-color: #f8d7da;
-      color: #721c24;
+      background: #FCE8E6;
+      color: #A52714;
     }
 
     .message {
       padding: 10px;
-      border-bottom: 1px solid #eee;
+      border-bottom: 1px solid #EEE;
       word-wrap: break-word;
+      font-size: 14px;
+      color: #555;
     }
 
     .timestamp {
+      color: #AAA;
+      font-size: 12px;
+      padding-bottom: 2px;
+    }
+
+    .sensor-data {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 24px;
+      width: 80%;
+      background: #F8F9FA;
+      padding: 12px;
+      border-radius: 12px;
+    }
+
+    .sensor-value {
+      text-align: center;
+      flex: 1;
+    }
+
+    .sensor-value h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 500;
       color: #666;
-      font-size: 0.8em;
+    }
+
+    .sensor-value p {
+      margin: 5px 0;
+      font-size: 20px;
+      font-weight: 600;
+      color: #222;
+    }
+
+    /* Add styles for the recalibration button */
+    .recalibrate-button {
+      margin-bottom: 20px;
+      padding: 16px 32px;
+      background: #5988ba;
+      color: white;
+      border: none;
+      border-radius: 16px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    .recalibrate-button:hover {
+      background: #005BBB;
     }
   </style>
 </head>
 
 <body>
-  <h1>Debug Data Output</h1>
+  <h1>Phone Sensor Visualization</h1>
   <div id="connection-status" class="status disconnected">Disconnected</div>
-  <div id="data-container"></div>
+
+  <div class="container">
+    <div class="visualization-container">
+      <h2>Phone Orientation</h2>
+      <div id="phone-container">
+        <div id="phone-model">
+          <div id="phone-screen"></div>
+        </div>
+      </div>
+      <button id="recalibrate-button" class="recalibrate-button">Recalibrate (Zero Position)</button>
+      <div class="sensor-data">
+        <div class="sensor-value">
+          <h3>Acceleration X</h3>
+          <p id="accel-x">0.00</p>
+        </div>
+        <div class="sensor-value">
+          <h3>Acceleration Y</h3>
+          <p id="accel-y">0.00</p>
+        </div>
+        <div class="sensor-value">
+          <h3>Acceleration Z</h3>
+          <p id="accel-z">0.00</p>
+        </div>
+      </div>
+      <div class="sensor-data">
+        <div class="sensor-value">
+          <h3>Rotation Alpha</h3>
+          <p id="rot-alpha">0.00</p>
+        </div>
+        <div class="sensor-value">
+          <h3>Rotation Beta</h3>
+          <p id="rot-beta">0.00</p>
+        </div>
+        <div class="sensor-value">
+          <h3>Rotation Gamma</h3>
+          <p id="rot-gamma">0.00</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="data-container"></div>
+  </div>
 
   <script>
     const statusElement = document.getElementById('connection-status');
     const dataContainer = document.getElementById('data-container');
+    const phoneModel = document.getElementById('phone-model');
+
+    // Sensor data display elements
+    const accelXElement = document.getElementById('accel-x');
+    const accelYElement = document.getElementById('accel-y');
+    const accelZElement = document.getElementById('accel-z');
+    const rotAlphaElement = document.getElementById('rot-alpha');
+    const rotBetaElement = document.getElementById('rot-beta');
+    const rotGammaElement = document.getElementById('rot-gamma');
+    const recalibrateButton = document.getElementById('recalibrate-button');
+
     let ws;
+
+    // Last processed sensor data
+    let lastSensorData = {
+      acceleration: { x: 0, y: 0, z: 0 },
+      orientation: { x: 0, y: 0, z: 0, _lastUpdate: 0 }
+    };
+
+    // Track continuous rotation to avoid flips
+    let continuousRotation = {
+      alpha: 0,
+      beta: 0,
+      gamma: 0
+    };
+
+    // Calibration offsets - used to zero the phone position
+    let calibrationOffsets = {
+      alpha: 0,
+      beta: 0,
+      gamma: 0
+    };
+
+    // Animation frame request ID
+    let animationFrameId = null;
+
+    // Add event listener for recalibration button
+    recalibrateButton.addEventListener('click', recalibrateOrientation);
+
+    // Function to recalibrate (zero) the phone orientation
+    function recalibrateOrientation() {
+      // Store current continuous rotation values as offsets
+      calibrationOffsets.alpha = continuousRotation.alpha;
+      calibrationOffsets.beta = continuousRotation.beta;
+      calibrationOffsets.gamma = continuousRotation.gamma;
+
+      // Update the visualization immediately
+      updatePhoneVisualization();
+
+      // Log the recalibration
+      addMessage({
+        type: 'system',
+        message: `Recalibrated to zero position. Offsets set to: Alpha: ${calibrationOffsets.alpha.toFixed(2)}°, Beta: ${calibrationOffsets.beta.toFixed(2)}°, Gamma: ${calibrationOffsets.gamma.toFixed(2)}°`
+      });
+    }
 
     function connect() {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/data-output`;
+      const wsUrl = `${protocol}//${window.location.host}/ws/raw-data-output`;
 
       ws = new WebSocket(wsUrl);
 
@@ -88,12 +302,141 @@
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          processMessage(data);
           addMessage(data);
         } catch (error) {
           console.error('Error parsing message:', error);
           addMessage({ type: 'error', message: 'Error parsing message' });
         }
       };
+    }
+
+    function processMessage(data) {
+      // Process sensor data if available
+      if (data.type === 'raw_sensor_data' && data.sensorData) {
+        const sensorData = data.sensorData;
+
+        // Update acceleration data if available
+        if (sensorData.acceleration) {
+          // Use raw acceleration values for snappy response
+          lastSensorData.acceleration = {
+            x: sensorData.acceleration.x,
+            y: sensorData.acceleration.y,
+            z: sensorData.acceleration.z
+          };
+
+          // Update UI display
+          accelXElement.textContent = lastSensorData.acceleration.x.toFixed(2);
+          accelYElement.textContent = lastSensorData.acceleration.y.toFixed(2);
+          accelZElement.textContent = lastSensorData.acceleration.z.toFixed(2);
+        }
+
+        // Update orientation data if available
+        if (sensorData.orientation) {
+          // Process orientation data to handle edge cases
+          processOrientationData(sensorData.orientation);
+
+          // Update UI display
+          rotAlphaElement.textContent = lastSensorData.orientation.x.toFixed(2);
+          rotBetaElement.textContent = lastSensorData.orientation.y.toFixed(2);
+          rotGammaElement.textContent = lastSensorData.orientation.z.toFixed(2);
+
+          // Update visualization immediately
+          updatePhoneVisualization();
+        }
+      }
+    }
+
+    // Calculate the shortest rotation between two angles
+    function shortestRotation(from, to, range = 360) {
+      // For alpha (range 0-360)
+      if (range === 360) {
+        // Normalize angles to 0-360
+        from = ((from % 360) + 360) % 360;
+        to = ((to % 360) + 360) % 360;
+      }
+
+      // Calculate the difference
+      let diff = to - from;
+
+      // Find the shortest path
+      if (range === 360) {
+        // For alpha (full circle)
+        if (diff > 180) {
+          diff -= 360;
+        } else if (diff < -180) {
+          diff += 360;
+        }
+      } else {
+        // For beta and gamma (limited range)
+        // Ensure we don't exceed the range limits
+        const halfRange = range / 2;
+        if (Math.abs(diff) > halfRange) {
+          if (diff > 0) {
+            diff = range - diff;
+          } else {
+            diff = -range - diff;
+          }
+        }
+      }
+
+      return diff;
+    }
+
+    // Process orientation data to handle edge cases
+    function processOrientationData(orientation) {
+      const now = Date.now();
+
+      // Initialize if this is the first data point
+      if (lastSensorData.orientation._lastUpdate === 0) {
+        lastSensorData.orientation = {
+          x: orientation.x,
+          y: orientation.y,
+          z: orientation.z,
+          _lastUpdate: now
+        };
+
+        // Initialize continuous rotation values
+        continuousRotation.alpha = orientation.x;
+        continuousRotation.beta = orientation.y;
+        continuousRotation.gamma = orientation.z;
+        return;
+      }
+
+      // Calculate the shortest rotation for each axis
+      const alphaDiff = shortestRotation(lastSensorData.orientation.x, orientation.x, 360);
+      const betaDiff = shortestRotation(lastSensorData.orientation.y, orientation.y, 180);
+      const gammaDiff = shortestRotation(lastSensorData.orientation.z, orientation.z, 180);
+
+      // Update continuous rotation values by adding the shortest rotation
+      continuousRotation.alpha += alphaDiff;
+      continuousRotation.beta += betaDiff;
+      continuousRotation.gamma += gammaDiff;
+
+      // Update with raw values for display
+      lastSensorData.orientation = {
+        x: orientation.x,
+        y: orientation.y,
+        z: orientation.z,
+        _lastUpdate: now
+      };
+    }
+
+    function updatePhoneVisualization() {
+      // Calculate rotation values with calibration offsets applied
+      const calibratedAlpha = continuousRotation.alpha - calibrationOffsets.alpha;
+      const calibratedBeta = continuousRotation.beta - calibrationOffsets.beta;
+      const calibratedGamma = continuousRotation.gamma - calibrationOffsets.gamma;
+
+      // Apply limits to beta and gamma for visualization
+      const beta = Math.max(-90, Math.min(90, calibratedBeta));
+      const gamma = Math.max(-90, Math.min(90, calibratedGamma));
+
+      // Use calibrated rotation values for all axes to avoid flips
+      phoneModel.style.transform = `translate(-50%, -50%) 
+                                    rotateZ(${-calibratedAlpha}deg) 
+                                    rotateX(${-beta}deg) 
+                                    rotateY(${-gamma}deg)`;
     }
 
     function addMessage(data) {
@@ -103,7 +446,9 @@
       const timestamp = data.timestamp || new Date().toISOString();
       let content = '';
 
-      if (data.type === 'punch_intensity') {
+      if (data.type === 'sensor_data') {
+        content = `Sensor Data: ${JSON.stringify(data.data, null, 2)}`;
+      } else if (data.type === 'punch_intensity') {
         const intensity = data.data?.intensity || data.punchIntensity;
         content = `Punch Intensity: ${intensity}`;
       } else if (data.message) {
