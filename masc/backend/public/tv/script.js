@@ -332,67 +332,65 @@ function orientationBasedScaling(orientation) {
   });
 }
 
-// Custom smooth scroll function with adjustable duration
-function smoothScrollTo(element, to, duration, callback) {
-  const start = element.scrollTop;
-  const change = to - start;
-  let currentTime = 0;
-  const increment = 20;
 
-  function animateScroll() {
-    currentTime += increment;
-    const val = easeInOutQuad(currentTime, start, change, duration);
-    element.scrollTop = val;
+document.addEventListener("DOMContentLoaded", function() {
+  const imageContainer = document.getElementById("image-container");
+  let images = [];
+  let selectedIndex = 0;
 
-    // Check which image is currently centered during the scroll animation
-    updateImageDuringScroll(element);
+  async function fetchImages() {
+      try {
+          const response = await fetch("/api/images");
+          if (!response.ok) {
+              throw new Error("Failed to fetch images");
+          }
 
-    if (currentTime < duration) {
-      setTimeout(animateScroll, increment);
-    } else if (callback) {
-      callback();
-    }
+          const imageData = await response.json();
+          images = imageData.map((img) => img.url);
+
+          // Shuffle the images
+          for (let i = images.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [images[i], images[j]] = [images[j], images[i]];
+          }
+
+          localStorage.setItem("shuffledImages", JSON.stringify(images));
+          loadImages();
+      } catch (error) {
+          console.error("Error fetching images:", error);
+      }
   }
 
-  // Easing function for smoother animation
-  function easeInOutQuad(t, b, c, d) {
-    t /= d / 2;
-    if (t < 1) return c / 2 * t * t + b;
-    t--;
-    return -c / 2 * (t * (t - 2) - 1) + b;
+
+// this the current function for the weird image effect
+  function loadImages() {
+      images.forEach((src, index) => {
+          let img = document.createElement("img");
+          img.src = src;
+          img.classList.add("image-slide");
+          if (index !== 0) {
+              img.style.opacity = "0";
+          }
+          imageContainer.appendChild(img);
+      });
   }
 
-  animateScroll();
-}
+  function nextImage() {
+      let currentImage = document.querySelectorAll(".image-slide")[selectedIndex];
+      currentImage.classList.add("flying-away");
+      
+      setTimeout(() => {
+          currentImage.style.display = "none";
+          selectedIndex = (selectedIndex + 1) % images.length;
+          let nextImage = document.querySelectorAll(".image-slide")[selectedIndex];
+          nextImage.style.opacity = "1";
+      }, 800);
+  }
 
-// Update which image is selected during scroll animation
-function updateImageDuringScroll(container) {
-  const containerHeight = container.clientHeight;
-  const containerCenter = container.scrollTop + (containerHeight / 2);
-
-  let closestImage = null;
-  let closestDistance = Infinity;
-
-  document.querySelectorAll(".preview-image").forEach((img) => {
-    const imgCenter = img.offsetTop + (img.clientHeight / 2);
-    const distance = Math.abs(containerCenter - imgCenter);
-
-    if (distance < closestDistance) {
-      closestDistance = distance;
-      closestImage = img;
-    }
+  document.addEventListener("click", nextImage);
+  document.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowRight") nextImage();
   });
 
-  if (closestImage && parseInt(closestImage.dataset.index) !== selectedIndex) {
-    updateSelectedImage(parseInt(closestImage.dataset.index));
-  }
-}
-
-// Start the subtle breathing animation after images are loaded
-function setupBreathingAnimation() {
-  // Start the animation loop
-  requestAnimationFrame(applySubtleBreathing);
-}
-
-// Initialize by fetching images
-fetchImages();
+  fetchImages();
+});
