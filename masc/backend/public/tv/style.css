@@ -1,11 +1,12 @@
 body {
   margin: 0;
   padding: 0;
-  background-color: #f4f4f4;
+  background-color: #fff;
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  height: 100vh;
+  height: 3840px;
+  width: 2160px;
   overflow: hidden;
 }
 
@@ -32,6 +33,10 @@ body {
   padding-top: 20vh; /* Add padding at top for better scrolling experience */
   padding-bottom: 20vh; /* Add padding at bottom for better scrolling experience */
 }
+
+/* img {
+  transform: rotate(90deg);
+} */
 
 .preview-image {
   width: 200px;
