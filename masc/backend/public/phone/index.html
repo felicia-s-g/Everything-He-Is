@@ -4,22 +4,19 @@
 <head>
   <meta name="viewport"
     content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Sensor Data Collection</title>
   <link href="/phone/style.css" rel="stylesheet" />
 </head>
 
 <body>
   <div id="main">
-    X: <span id="x"></span><br />
-    Y: <span id="y"></span><br />
-    Alpha: <span id="alpha"></span><br />
-    Beta: <span id="beta"></span><br />
-    Gamma: <span id="gamma"></span><br />
-    TIME: <span id="time"></span><br />
-    ID: <span id="id"></span><br />
-    <button id="accelPermsButton" onclick="getAccel()" style="height: 50px">
-      Get Accelerometer Permissions
+    <div id="connection-status" class="connection-status connecting">
+      <span class="status-dot"></span>
+      <span class="status-text">Initializing...</span>
+    </div>
+    <button id="startButton" style="height: 50px; width: 100%; margin: 20px 0; padding: 10px; font-size: 16px;">
+      Start Sensor Data Collection
     </button>
-    <div class="dot" style="left: 30%; top: 30%"></div>
   </div>
 </body>
 <script src="/phone/script.js"></script>

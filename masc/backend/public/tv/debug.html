@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Phone Sensor Visualization</title>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -33,7 +34,7 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      /* justify-content: center; */
+      position: relative;
     }
 
     h1 {
@@ -47,30 +48,6 @@
       width: 100%;
       height: 300px;
       position: relative;
-      perspective: 1000px;
-    }
-
-    #phone-model {
-      width: 100px;
-      height: 200px;
-      background: linear-gradient(145deg, grey, grey);
-      border-radius: 12px;
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform-style: preserve-3d;
-      transform: translate(-50%, -50%) rotateX(0deg) rotateY(0deg) rotateZ(0deg);
-      transition: transform 0.1s linear;
-    }
-
-    #phone-screen {
-      width: 90px;
-      height: 160px;
-      background: #1A1A1A;
-      border-radius: 8px;
-      position: absolute;
-      top: 20px;
-      left: 5px;
     }
 
     #data-container {
@@ -82,9 +59,6 @@
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
       overflow-y: auto;
     }
-      /* display: flex;
-      flex-direction: column;
-      align-items: center; */
 
     .status {
       padding: 12px;
@@ -147,24 +121,6 @@
       font-weight: 600;
       color: #222;
     }
-
-    /* Add styles for the recalibration button */
-    .recalibrate-button {
-      margin-bottom: 20px;
-      padding: 16px 32px;
-      background: #5988ba;
-      color: white;
-      border: none;
-      border-radius: 16px;
-      font-size: 16px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: 0.3s;
-    }
-
-    .recalibrate-button:hover {
-      background: #005BBB;
-    }
   </style>
 </head>
 
@@ -175,12 +131,7 @@
   <div class="container">
     <div class="visualization-container">
       <h2>Phone Orientation</h2>
-      <div id="phone-container">
-        <div id="phone-model">
-          <div id="phone-screen"></div>
-        </div>
-      </div>
-      <button id="recalibrate-button" class="recalibrate-button">Recalibrate (Zero Position)</button>
+      <div id="phone-container"></div>
       <div class="sensor-data">
         <div class="sensor-value">
           <h3>Acceleration X</h3>
@@ -217,7 +168,7 @@
   <script>
     const statusElement = document.getElementById('connection-status');
     const dataContainer = document.getElementById('data-container');
-    const phoneModel = document.getElementById('phone-model');
+    const phoneContainer = document.getElementById('phone-container');
 
     // Sensor data display elements
     const accelXElement = document.getElementById('accel-x');
@@ -226,7 +177,6 @@
     const rotAlphaElement = document.getElementById('rot-alpha');
     const rotBetaElement = document.getElementById('rot-beta');
     const rotGammaElement = document.getElementById('rot-gamma');
-    const recalibrateButton = document.getElementById('recalibrate-button');
 
     let ws;
 
@@ -243,39 +193,201 @@
       gamma: 0
     };
 
-    // Calibration offsets - used to zero the phone position
-    let calibrationOffsets = {
-      alpha: 0,
-      beta: 0,
-      gamma: 0
-    };
+    // Three.js variables
+    let scene, camera, renderer, phoneModel;
+    let isThreeJsInitialized = false;
 
-    // Animation frame request ID
-    let animationFrameId = null;
+    // Initialize Three.js
+    function initThreeJs() {
+      // Create scene
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xffffff);
 
-    // Add event listener for recalibration button
-    recalibrateButton.addEventListener('click', recalibrateOrientation);
+      // Create camera
+      camera = new THREE.PerspectiveCamera(75, phoneContainer.clientWidth / phoneContainer.clientHeight, 0.1, 1000);
+      camera.position.z = 7;
 
-    // Function to recalibrate (zero) the phone orientation
-    function recalibrateOrientation() {
-      // Store current continuous rotation values as offsets
-      calibrationOffsets.alpha = continuousRotation.alpha;
-      calibrationOffsets.beta = continuousRotation.beta;
-      calibrationOffsets.gamma = continuousRotation.gamma;
+      // Create renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(phoneContainer.clientWidth, phoneContainer.clientHeight);
+      phoneContainer.appendChild(renderer.domElement);
 
-      // Update the visualization immediately
-      updatePhoneVisualization();
+      // Create lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+      scene.add(ambientLight);
 
-      // Log the recalibration
-      addMessage({
-        type: 'system',
-        message: `Recalibrated to zero position. Offsets set to: Alpha: ${calibrationOffsets.alpha.toFixed(2)}°, Beta: ${calibrationOffsets.beta.toFixed(2)}°, Gamma: ${calibrationOffsets.gamma.toFixed(2)}°`
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      directionalLight.position.set(5, 5, 5);
+      scene.add(directionalLight);
+
+      // Create phone model (simple rectangular prism)
+      createPhoneModel();
+
+      // Handle window resize
+      window.addEventListener('resize', onWindowResize);
+
+      // Start animation loop
+      animate();
+
+      isThreeJsInitialized = true;
+    }
+
+    // Create phone model
+    function createPhoneModel() {
+      // We'll create a hierarchy:
+      // scene -> phoneGroup -> phoneModel + axes
+      // This helps us handle rotations correctly
+
+      // Create phone group to handle rotations
+      const phoneGroup = new THREE.Group();
+      scene.add(phoneGroup);
+
+      // Phone body - Made larger (2x) compared to previous dimensions
+      const phoneGeometry = new THREE.BoxGeometry(2, 4, 0.2);
+      const phoneMaterial = new THREE.MeshPhongMaterial({
+        color: 0x333333,
+        shininess: 30
       });
+      phoneModel = new THREE.Mesh(phoneGeometry, phoneMaterial);
+      phoneGroup.add(phoneModel);
+
+      // Phone screen - Made larger to match new phone size
+      const screenGeometry = new THREE.BoxGeometry(1.8, 3.6, 0.01);
+      const screenMaterial = new THREE.MeshPhongMaterial({
+        color: 0x1a1a1a,
+        shininess: 100
+      });
+      const screen = new THREE.Mesh(screenGeometry, screenMaterial);
+      screen.position.z = 0.11;
+      phoneModel.add(screen);
+
+      // Add small camera dot on top
+      const cameraDotGeometry = new THREE.CircleGeometry(0.1, 16);
+      const cameraDotMaterial = new THREE.MeshBasicMaterial({ color: 0x111111 });
+      const cameraDot = new THREE.Mesh(cameraDotGeometry, cameraDotMaterial);
+      cameraDot.position.set(0, 1.6, 0.11);
+      cameraDot.rotation.x = -Math.PI / 2;
+      phoneModel.add(cameraDot);
+
+      // Add a small home button at the bottom
+      const homeButtonGeometry = new THREE.CircleGeometry(0.16, 16);
+      const homeButtonMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
+      const homeButton = new THREE.Mesh(homeButtonGeometry, homeButtonMaterial);
+      homeButton.position.set(0, -1.6, 0.11);
+      homeButton.rotation.x = -Math.PI / 2;
+      phoneModel.add(homeButton);
+
+      // Initial orientation of the phone
+      // For device orientation alignment:
+      // - Phone y-axis is in the direction of the top of the phone
+      // - Phone x-axis is in the direction of the right side of the phone
+      // - Phone z-axis is perpendicular to the phone screen
+
+      // No initial rotation needed - the phone is already aligned with Three.js coordinates
+      // phoneModel.rotation.x = 0;
+      // phoneModel.rotation.y = 0;
+      // phoneModel.rotation.z = 0;
+
+      // Store the phone group for rotation updates
+      phoneModel.userData.phoneGroup = phoneGroup;
+
+      // Add coordinate axes to visualize orientation
+      addDeviceCoordinateAxes(phoneGroup);
+    }
+
+    // Add coordinate axes to visualize device orientation
+    function addDeviceCoordinateAxes(group) {
+      const axisLength = 2.0;
+      const axisWidth = 0.05;
+
+      // Create a separate group for the axes
+      const axesGroup = new THREE.Group();
+      group.add(axesGroup);
+
+      // X-axis (red) - points to the right side of the device
+      const xAxisGeometry = new THREE.CylinderGeometry(axisWidth, axisWidth, axisLength, 8);
+      const xAxisMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+      const xAxis = new THREE.Mesh(xAxisGeometry, xAxisMaterial);
+      xAxis.rotation.z = -Math.PI / 2;
+      xAxis.position.x = axisLength / 2;
+      axesGroup.add(xAxis);
+
+      const xTipGeometry = new THREE.ConeGeometry(axisWidth * 2, axisWidth * 5, 8);
+      const xTip = new THREE.Mesh(xTipGeometry, xAxisMaterial);
+      xTip.rotation.z = -Math.PI / 2;
+      xTip.position.x = axisLength;
+      axesGroup.add(xTip);
+
+      // Y-axis (green) - points to the top of the device
+      const yAxisGeometry = new THREE.CylinderGeometry(axisWidth, axisWidth, axisLength, 8);
+      const yAxisMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+      const yAxis = new THREE.Mesh(yAxisGeometry, yAxisMaterial);
+      yAxis.position.y = axisLength / 2;
+      axesGroup.add(yAxis);
+
+      const yTipGeometry = new THREE.ConeGeometry(axisWidth * 2, axisWidth * 5, 8);
+      const yTip = new THREE.Mesh(yTipGeometry, yAxisMaterial);
+      yTip.position.y = axisLength;
+      axesGroup.add(yTip);
+
+      // Z-axis (blue) - points out from the screen
+      const zAxisGeometry = new THREE.CylinderGeometry(axisWidth, axisWidth, axisLength, 8);
+      const zAxisMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+      const zAxis = new THREE.Mesh(zAxisGeometry, zAxisMaterial);
+      zAxis.rotation.x = Math.PI / 2;
+      zAxis.position.z = axisLength / 2;
+      axesGroup.add(zAxis);
+
+      const zTipGeometry = new THREE.ConeGeometry(axisWidth * 2, axisWidth * 5, 8);
+      const zTip = new THREE.Mesh(zTipGeometry, zAxisMaterial);
+      zTip.rotation.x = Math.PI / 2;
+      zTip.position.z = axisLength;
+      axesGroup.add(zTip);
+
+      // Add labels
+      axesGroup.add(createLabel('X', new THREE.Vector3(axisLength + 0.3, 0, 0), '#ff0000'));
+      axesGroup.add(createLabel('Y', new THREE.Vector3(0, axisLength + 0.3, 0), '#00ff00'));
+      axesGroup.add(createLabel('Z', new THREE.Vector3(0, 0, axisLength + 0.3), '#0000ff'));
+    }
+
+    // Create text label for axes
+    function createLabel(text, position, color) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 64;
+      canvas.height = 64;
+      const context = canvas.getContext('2d');
+      context.fillStyle = color;
+      context.font = 'Bold 48px Arial';
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText(text, 32, 32);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      const material = new THREE.SpriteMaterial({ map: texture });
+      const sprite = new THREE.Sprite(material);
+      sprite.scale.set(0.5, 0.5, 0.5);
+      sprite.position.copy(position);
+      return sprite;
+    }
+
+    // Window resize handler
+    function onWindowResize() {
+      if (!isThreeJsInitialized) return;
+
+      camera.aspect = phoneContainer.clientWidth / phoneContainer.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(phoneContainer.clientWidth, phoneContainer.clientHeight);
+    }
+
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
     }
 
     function connect() {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/raw-data-output`;
+      const wsUrl = `${protocol}//${window.location.host}/ws/debug`;
 
       ws = new WebSocket(wsUrl);
 
@@ -284,6 +396,11 @@
         statusElement.classList.remove('disconnected');
         statusElement.classList.add('connected');
         addMessage({ type: 'system', message: 'Connected to server' });
+
+        // Initialize Three.js when connected
+        if (!isThreeJsInitialized) {
+          initThreeJs();
+        }
       };
 
       ws.onclose = () => {
@@ -312,38 +429,37 @@
     }
 
     function processMessage(data) {
-      // Process sensor data if available
-      if (data.type === 'raw_sensor_data' && data.sensorData) {
-        const sensorData = data.sensorData;
+      // Check if the message is sensor data (acceleration or orientation)
+      if (data.type === 'acceleration' && data.acceleration) {
+        // Use raw acceleration values for snappy response
+        lastSensorData.acceleration = {
+          x: data.acceleration.x,
+          y: data.acceleration.y,
+          z: data.acceleration.z
+        };
 
-        // Update acceleration data if available
-        if (sensorData.acceleration) {
-          // Use raw acceleration values for snappy response
-          lastSensorData.acceleration = {
-            x: sensorData.acceleration.x,
-            y: sensorData.acceleration.y,
-            z: sensorData.acceleration.z
-          };
+        // Update UI display
+        accelXElement.textContent = lastSensorData.acceleration.x.toFixed(2);
+        accelYElement.textContent = lastSensorData.acceleration.y.toFixed(2);
+        accelZElement.textContent = lastSensorData.acceleration.z.toFixed(2);
+      }
 
-          // Update UI display
-          accelXElement.textContent = lastSensorData.acceleration.x.toFixed(2);
-          accelYElement.textContent = lastSensorData.acceleration.y.toFixed(2);
-          accelZElement.textContent = lastSensorData.acceleration.z.toFixed(2);
-        }
+      // Update orientation data if available
+      else if (data.type === 'orientation' && data.orientation) {
+        // Process orientation data to handle edge cases
+        processOrientationData(data.orientation);
 
-        // Update orientation data if available
-        if (sensorData.orientation) {
-          // Process orientation data to handle edge cases
-          processOrientationData(sensorData.orientation);
+        // Update UI display
+        rotAlphaElement.textContent = lastSensorData.orientation.x.toFixed(2);
+        rotBetaElement.textContent = lastSensorData.orientation.y.toFixed(2);
+        rotGammaElement.textContent = lastSensorData.orientation.z.toFixed(2);
 
-          // Update UI display
-          rotAlphaElement.textContent = lastSensorData.orientation.x.toFixed(2);
-          rotBetaElement.textContent = lastSensorData.orientation.y.toFixed(2);
-          rotGammaElement.textContent = lastSensorData.orientation.z.toFixed(2);
-
-          // Update visualization immediately
-          updatePhoneVisualization();
-        }
+        // Update visualization immediately
+        updatePhoneVisualization();
+      }
+      // Handle punch intensity data
+      else if (data.type === 'punch') {
+        // Could add visualization for punch intensity here if needed
       }
     }
 
@@ -423,20 +539,59 @@
     }
 
     function updatePhoneVisualization() {
-      // Calculate rotation values with calibration offsets applied
-      const calibratedAlpha = continuousRotation.alpha - calibrationOffsets.alpha;
-      const calibratedBeta = continuousRotation.beta - calibrationOffsets.beta;
-      const calibratedGamma = continuousRotation.gamma - calibrationOffsets.gamma;
+      if (!isThreeJsInitialized || !phoneModel) return;
 
-      // Apply limits to beta and gamma for visualization
-      const beta = Math.max(-90, Math.min(90, calibratedBeta));
-      const gamma = Math.max(-90, Math.min(90, calibratedGamma));
+      // Get the phone group
+      const phoneGroup = phoneModel.userData.phoneGroup;
+      if (!phoneGroup) return;
 
-      // Use calibrated rotation values for all axes to avoid flips
-      phoneModel.style.transform = `translate(-50%, -50%) 
-                                    rotateZ(${-calibratedAlpha}deg) 
-                                    rotateX(${-beta}deg) 
-                                    rotateY(${-gamma}deg)`;
+      // Use raw continuous rotation values without calibration
+      let alpha = continuousRotation.alpha % 360;
+      let beta = continuousRotation.beta;
+      let gamma = continuousRotation.gamma;
+
+      // Map alpha to the correct range (0 to 360 degrees)
+      if (alpha < 0) alpha += 360;
+
+      // Convert degrees to radians
+      const alphaRad = THREE.MathUtils.degToRad(alpha);
+      const betaRad = THREE.MathUtils.degToRad(beta);
+      const gammaRad = THREE.MathUtils.degToRad(gamma);
+
+      // Reset the phone group's orientation
+      phoneGroup.quaternion.set(0, 0, 0, 1);
+
+      // Create a rotation order that matches device orientation spec
+      // Device orientation rotations are applied in this order:
+      // 1. Alpha (Z-axis) - compass direction
+      // 2. Beta (X-axis) - front-to-back tilt
+      // 3. Gamma (Y-axis) - left-to-right tilt
+
+      // First, rotate around Z-axis (alpha)
+      const qZ = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 0, 1),
+        -alphaRad // Negative because the rotation direction is opposite in Three.js
+      );
+
+      // Second, rotate around X-axis (beta)
+      const qX = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(1, 0, 0),
+        -betaRad // Negative because the rotation direction is opposite in Three.js
+      );
+
+      // Third, rotate around Y-axis (gamma)
+      const qY = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 1, 0),
+        gammaRad // No negative because this already aligns with Three.js
+      );
+
+      // Apply rotations in the correct order for extrinsic rotations (ZXY)
+      // For extrinsic rotations, the multiplication order is REVERSED
+      const finalQuaternion = new THREE.Quaternion();
+      finalQuaternion.multiply(qY).multiply(qX).multiply(qZ);
+
+      // Apply the final rotation to the phone group
+      phoneGroup.quaternion.copy(finalQuaternion);
     }
 
     function addMessage(data) {
@@ -446,12 +601,16 @@
       const timestamp = data.timestamp || new Date().toISOString();
       let content = '';
 
-      if (data.type === 'sensor_data') {
-        content = `Sensor Data: ${JSON.stringify(data.data, null, 2)}`;
-      } else if (data.type === 'punch_intensity') {
-        const intensity = data.data?.intensity || data.punchIntensity;
-        content = `Punch Intensity: ${intensity}`;
-      } else if (data.message) {
+      if (data.type === 'acceleration') {
+        content = `Acceleration: x=${data.acceleration.x.toFixed(2)}, y=${data.acceleration.y.toFixed(2)}, z=${data.acceleration.z.toFixed(2)}`;
+      } else if (data.type === 'orientation') {
+        content = `Orientation: alpha=${data.orientation.x.toFixed(2)}°, beta=${data.orientation.y.toFixed(2)}°, gamma=${data.orientation.z.toFixed(2)}°`;
+      } else if (data.type === 'punch') {
+        const intensity = data.punchIntensity;
+        content = `Punch Intensity: ${intensity.toFixed(2)}`;
+      } else if (data.type === 'error' && data.message) {
+        content = `Error: ${data.message}`;
+      } else if (data.type === 'system' && data.message) {
         content = data.message;
       } else {
         content = JSON.stringify(data, null, 2);
@@ -468,6 +627,13 @@
       if (dataContainer.children.length > 50) {
         dataContainer.removeChild(dataContainer.lastChild);
       }
+    }
+
+    // Initialize Three.js if user manually reloads the page
+    if (!isThreeJsInitialized) {
+      window.addEventListener('DOMContentLoaded', () => {
+        initThreeJs();
+      });
     }
 
     // Initial connection

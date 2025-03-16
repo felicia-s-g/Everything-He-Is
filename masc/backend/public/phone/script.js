@@ -1,214 +1,135 @@
-//dom elements
-const contentX = document.getElementById("x");
-const contentY = document.getElementById("y");
-const contentTime = document.getElementById("time");
-const contentId = document.getElementById("id");
-const contentAlpha = document.getElementById("alpha");
-const contentBeta = document.getElementById("beta");
-const contentGamma = document.getElementById("gamma");
-const id = 1;
-let px = 50; // Position x and y for display
-let py = 50;
-let vx = 0.0; // Velocity x and y for display
-let vy = 0.0;
-
-// Actual sensor data values (unclipped)
-let rawPx = 50;
-let rawPy = 50;
-let rawVx = 0.0;
-let rawVy = 0.0;
-
-// Current sensor readings for calibration
-let currentAcceleration = { x: 0, y: 0, z: 0 };
-let currentOrientation = { x: 0, y: 0, z: 0 };
-
-// Calibration status
-let isCalibrated = false;
-
-let updateRate = 1 / 60; // Sensor refresh rate
-
 // WebSocket connection
-const ws = new WebSocket(`wss://${window.location.hostname}/ws/data-input`);
+let ws;
+let reconnectAttempts = 0;
+const baseReconnectDelay = 1000; // 1 second
+let isConnected = false;
+let maxReconnectDelay = 30000; // Cap delay at 30 seconds
 
-ws.onopen = () => {
-  console.log("WebSocket connection established");
-  // Check calibration status on connection
-  checkCalibrationStatus();
-};
+// Function to update connection status UI
+function updateConnectionStatus(status, message) {
+  const statusElement = document.getElementById("connection-status");
+  const statusTextElement = statusElement.querySelector(".status-text");
 
-ws.onerror = (error) => {
-  console.error("WebSocket error:", error);
-};
+  // Remove all current status classes
+  statusElement.classList.remove("connected", "connecting", "disconnected");
 
-ws.onclose = () => {
-  console.log("WebSocket connection closed");
-};
+  // Add the new status class
+  statusElement.classList.add(status);
 
-// Function to check current calibration status
-async function checkCalibrationStatus() {
-  try {
-    const response = await fetch("/api/calibration");
-    const data = await response.json();
-    isCalibrated = data.isCalibrated;
-
-    // Update UI to show calibration status
-    updateCalibrationUI();
-  } catch (error) {
-    console.error("Error checking calibration status:", error);
-  }
+  // Update the status text
+  statusTextElement.textContent = message;
 }
 
-// Function to update UI based on calibration status
-function updateCalibrationUI() {
-  const calibrateButton = document.getElementById("calibrateButton");
-  const resetButton = document.getElementById("resetCalibrationButton");
+function connectWebSocket() {
+  // Update status to connecting
+  updateConnectionStatus("connecting", "Connecting...");
 
-  if (calibrateButton) {
-    calibrateButton.textContent = isCalibrated ? "Recalibrate" : "Calibrate";
-  }
+  ws = new WebSocket(
+    `wss://${window.location.hostname}${
+      window.location.port ? ":" + window.location.port : ""
+    }/ws/data-input`,
+  );
 
-  if (resetButton) {
-    resetButton.style.display = isCalibrated ? "inline-block" : "none";
-  }
+  ws.onopen = () => {
+    console.log("WebSocket connection established");
+    isConnected = true;
+    reconnectAttempts = 0; // Reset reconnect attempts on successful connection
+
+    // Update status to connected
+    updateConnectionStatus("connected", "Connected");
+  };
+
+  ws.onmessage = (event) => {
+    console.log("Received message:", event.data);
+  };
+
+  ws.onerror = (error) => {
+    console.error("WebSocket error:", error);
+    // Update status to connecting instead of error
+    updateConnectionStatus("connecting", "Connection Issue - Retrying...");
+  };
+
+  ws.onclose = () => {
+    console.log("WebSocket connection closed");
+    isConnected = false;
+
+    // Calculate delay with exponential backoff, but cap it
+    let delay = baseReconnectDelay * Math.pow(2, reconnectAttempts);
+    delay = Math.min(delay, maxReconnectDelay); // Cap the delay
+
+    console.log(`Attempting to reconnect in ${delay}ms...`);
+
+    // Update status to reconnecting
+    updateConnectionStatus(
+      "connecting",
+      `Reconnecting in ${Math.round(delay / 1000)}s...`,
+    );
+
+    setTimeout(() => {
+      reconnectAttempts++;
+      connectWebSocket();
+    }, delay);
+  };
 }
 
-// Function to calibrate sensors
-async function calibrateSensors() {
-  try {
-    const response = await fetch("/api/calibrate", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        acceleration: currentAcceleration,
-        orientation: currentOrientation,
-      }),
-    });
+// Initialize connection status as connecting
+document.addEventListener("DOMContentLoaded", () => {
+  updateConnectionStatus("connecting", "Initializing...");
 
-    const data = await response.json();
-    isCalibrated = true;
-
-    // Update UI
-    updateCalibrationUI();
-
-    // Show success message
-    alert("Calibration successful!");
-  } catch (error) {
-    console.error("Error calibrating sensors:", error);
-    alert("Calibration failed. Please try again.");
-  }
-}
-
-// Function to reset calibration
-async function resetCalibration() {
-  try {
-    const response = await fetch("/api/reset-calibration", {
-      method: "POST",
-    });
-
-    const data = await response.json();
-    isCalibrated = false;
-
-    // Update UI
-    updateCalibrationUI();
-
-    // Show success message
-    alert("Calibration reset successful!");
-  } catch (error) {
-    console.error("Error resetting calibration:", error);
-    alert("Failed to reset calibration. Please try again.");
-  }
-}
+  // Initialize WebSocket connection
+  connectWebSocket();
+});
 
 async function getAccel() {
   DeviceMotionEvent.requestPermission().then((response) => {
     if (response == "granted") {
       window.addEventListener("devicemotion", (event) => {
-        // Store current acceleration values for calibration
-        currentAcceleration = {
-          x: event.acceleration.x,
-          y: event.acceleration.y,
-          z: event.acceleration.z,
-        };
-
-        // Update UI
-        contentX.innerHTML = currentAcceleration.x.toFixed(2);
-        contentY.innerHTML = currentAcceleration.y.toFixed(2);
-        contentTime.innerHTML = Date.now();
-        contentId.innerHTML = id;
-
-        ws.send(
-          JSON.stringify({
-            type: "acceleration",
-            timestamp: Date.now(),
-            acceleration: currentAcceleration,
-          }),
-        );
+        if (isConnected && ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: "acceleration",
+              timestamp: Date.now(),
+              acceleration: {
+                x: event.acceleration.x,
+                y: event.acceleration.y,
+                z: event.acceleration.z,
+              },
+            }),
+          );
+        }
       });
 
       window.addEventListener("deviceorientation", (event) => {
-        // Store current orientation values for calibration
-        currentOrientation = {
-          x: event.alpha,
-          y: event.beta,
-          z: event.gamma,
-        };
-
-        // Expose each orientation angle in a more readable way
-        rotation_degrees = event.alpha;
-        frontToBack_degrees = event.beta;
-        leftToRight_degrees = event.gamma;
-
-        // Update UI
-        contentAlpha.innerHTML = currentOrientation.x.toFixed(2);
-        contentBeta.innerHTML = currentOrientation.y.toFixed(2);
-        contentGamma.innerHTML = currentOrientation.z.toFixed(2);
-
-        ws.send(
-          JSON.stringify({
-            type: "orientation",
-            timestamp: Date.now(),
-            orientation: currentOrientation,
-          }),
-        );
+        if (isConnected && ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: "orientation",
+              timestamp: Date.now(),
+              orientation: {
+                x: event.alpha,
+                y: event.beta,
+                z: event.gamma,
+              },
+            }),
+          );
+        }
       });
-
-      // Add calibration buttons after permissions are granted
-      addCalibrationButtons();
     }
   });
 }
 
-// Function to add calibration buttons to the UI
-function addCalibrationButtons() {
-  const mainDiv = document.getElementById("main");
+// Prevent default touch behavior to avoid zoom and interaction issues
+document.addEventListener("touchmove", function (event) {
+  event.preventDefault();
+}, { passive: false });
 
-  // Check if buttons already exist
-  if (document.getElementById("calibrateButton")) {
-    return;
+document.addEventListener("touchstart", function (event) {
+  if (event.target.id !== "startButton") {
+    event.preventDefault();
   }
+}, { passive: false });
 
-  // Create calibration button
-  const calibrateButton = document.createElement("button");
-  calibrateButton.id = "calibrateButton";
-  calibrateButton.textContent = isCalibrated ? "Recalibrate" : "Calibrate";
-  calibrateButton.style.height = "50px";
-  calibrateButton.style.marginTop = "10px";
-  calibrateButton.style.marginRight = "10px";
-  calibrateButton.onclick = calibrateSensors;
-
-  // Create reset button
-  const resetButton = document.createElement("button");
-  resetButton.id = "resetCalibrationButton";
-  resetButton.textContent = "Reset Calibration";
-  resetButton.style.height = "50px";
-  resetButton.style.marginTop = "10px";
-  resetButton.style.display = isCalibrated ? "inline-block" : "none";
-  resetButton.onclick = resetCalibration;
-
-  // Add buttons to the UI
-  mainDiv.appendChild(document.createElement("br"));
-  mainDiv.appendChild(calibrateButton);
-  mainDiv.appendChild(resetButton);
-}
+// Start the app
+document.getElementById("startButton").addEventListener("click", function () {
+  getAccel();
+});

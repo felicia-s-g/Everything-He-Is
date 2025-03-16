@@ -8,6 +8,29 @@ const PUNCH_COOLDOWN_MS = 1000; // Cooldown period between punches (1 second)
 let lastOrientationTime = 0; // Track the last time orientation data was received
 const ORIENTATION_TIMEOUT_MS = 3000; // If no orientation data for 3 seconds, use subtle breathing
 
+function nextImage() {
+  let currentImage = document.querySelectorAll(".image-slide")[selectedIndex];
+
+  // Save current transform state if it exists
+  const currentTransform = currentImage.style.transform || "scale(1)";
+
+  // Add flying away class while keeping current transform as starting point
+  currentImage.style.transform = currentTransform;
+  currentImage.classList.add("flying-away");
+
+  setTimeout(() => {
+    selectedIndex = (selectedIndex + 1) % images.length;
+    let next = document.querySelectorAll(".image-slide")[selectedIndex];
+
+    // Reset the new image's transform before making it visible
+    next.style.transform = "scale(1)";
+    next.style.opacity = "1";
+
+    // Hide the previous image
+    currentImage.style.display = "none";
+  }, 350);
+}
+
 // Initialize WebSocket connection
 function initWebSocket() {
   // Close any existing connection
@@ -16,12 +39,12 @@ function initWebSocket() {
   }
 
   // Create a new WebSocket connection
-  const wsUrl = `wss://${window.location.hostname}/ws/data-output`;
+  const wsUrl = `wss://${window.location.host}/ws/ui-signals`;
   wsConnection = new WebSocket(wsUrl);
 
   // Connection opened
   wsConnection.addEventListener("open", (event) => {
-    console.log("Connected to data-output WebSocket");
+    console.log("Connected to ui-signals WebSocket");
   });
 
   // Listen for messages
@@ -30,8 +53,13 @@ function initWebSocket() {
       const data = JSON.parse(event.data);
 
       // Handle punch intensity data
-      if (data.punchIntensity !== undefined) {
-        forceBasedScroll(data.punchIntensity);
+      if (data.type === "punch") {
+        forceBasedScroll(data.acceleration);
+      }
+
+      // Handle tilt data
+      if (data.type === "tilt" && data.tilt) {
+        tiltBasedZoom(data.tilt);
       }
 
       // Handle orientation data
@@ -62,42 +90,6 @@ function initWebSocket() {
 }
 
 // Fetch images from the API endpoint
-async function fetchImages() {
-  try {
-    const response = await fetch("/api/images");
-    if (!response.ok) {
-      throw new Error("Failed to fetch images");
-    }
-
-    const imageData = await response.json();
-
-    // Map the API response to the format we need
-    images = imageData.map((img) => img.url);
-
-    // Shuffle the images
-    for (let i = images.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [images[i], images[j]] = [images[j], images[i]];
-    }
-
-    localStorage.setItem("shuffledImages", JSON.stringify(images));
-    updatePreview();
-
-    // Add scroll event listener after images are loaded
-    setupScrollListener();
-
-    // Setup the breathing animation
-    setupBreathingAnimation();
-
-    // Initialize WebSocket connection after images are loaded
-    initWebSocket();
-  } catch (error) {
-    console.error("Error fetching images:", error);
-    imageList.innerHTML =
-      "<p>Error loading images. Please try again later.</p>";
-  }
-}
-
 function updatePreview() {
   imageList.innerHTML = "";
   images.forEach((imgSrc, index) => {
@@ -175,76 +167,8 @@ function setupScrollListener() {
 // acceleration starts from 10, as by the IoS accelerometer
 function forceBasedScroll(acceleration) {
   // Only process if we have images and the punch intensity is provided
-  if (!images.length || acceleration === undefined) return;
-
-  // Check if we're still in cooldown period from the last punch
-  const currentTime = Date.now();
-  if (currentTime - lastPunchTime < PUNCH_COOLDOWN_MS) {
-    console.log("Ignoring punch during cooldown period");
-    return;
-  }
-
-  // Update the last punch time
-  lastPunchTime = currentTime;
-
-  // We already know the punch intensity is > 10 from the backend
-  // Map the punch intensity to determine how many images to scroll
-  // Higher intensity = more images scrolled
-  const container = document.getElementById("preview-container");
-
-  // Set auto-scrolling flag to prevent interference from scroll event listener
-  // and to prevent scaling during punch scrolling
-  isAutoScrolling = true;
-
-  // Calculate how many images to scroll (3-10 based on intensity)
-  // Modified formula to scroll more images at once
-  const imagesToScroll = Math.ceil((acceleration - 8) / 10) + 3;
-
-  // Calculate the normalized intensity (10-100)
-  const normalizedIntensity = Math.min(Math.max(acceleration, 10), 100);
-
-  // Always scroll forward (direction = 1)
-  const direction = 1;
-
-  // Calculate new index, ensuring it stays within bounds
-  let newIndex = selectedIndex + (direction * imagesToScroll);
-  newIndex = Math.max(0, Math.min(newIndex, images.length - 1));
-
-  // Get the target image element
-  const targetImage = document.getElementById(`image-${newIndex}`);
-
-  if (targetImage) {
-    // Reset any scaling during punch scrolling
-    document.querySelectorAll(".preview-image").forEach((img) => {
-      if (parseInt(img.dataset.index) === selectedIndex) {
-        img.style.transform = "scale(1.0)";
-      }
-    });
-
-    // Calculate scroll duration based on intensity (faster for stronger punches)
-    // Inverse relationship: higher intensity = shorter duration
-    const scrollDuration = Math.max(300, 1000 - (normalizedIntensity * 5));
-
-    // Scroll to the target image
-    smoothScrollTo(
-      container,
-      targetImage.offsetTop - (container.clientHeight / 2) +
-        (targetImage.clientHeight / 2),
-      scrollDuration,
-      () => {
-        // Reset auto-scrolling flag when animation completes
-        isAutoScrolling = false;
-        // Update the selected image
-        updateSelectedImage(newIndex);
-      },
-    );
-
-    // Log the punch event for debugging
-    console.log(
-      `Punch detected! Intensity: ${acceleration}, Scrolling ${imagesToScroll} images forward`,
-    );
-  } else {
-    isAutoScrolling = false;
+  for (let i = 0; i < Math.floor(acceleration / 2); i++) {
+    nextImage();
   }
 }
 
@@ -332,64 +256,102 @@ function orientationBasedScaling(orientation) {
   });
 }
 
+// Function to zoom/enlarge images based on tilt value
+function tiltBasedZoom(tilt) {
+  // Skip if no images or auto-scrolling is in progress
+  if (!images.length || isAutoScrolling) return;
 
-document.addEventListener("DOMContentLoaded", function() {
+  console.log("Tilt-based zoom:", tilt);
+
+  // Track when we last received tilt data
+  lastOrientationTime = Date.now();
+
+  // Ensure tilt is a number and has a reasonable value
+  const tiltValue = typeof tilt === "number" ? tilt : parseFloat(tilt);
+  if (isNaN(tiltValue)) return;
+
+  // Map tilt values to a much subtler zoom range (approx. 10x weaker)
+  // Assuming tilt values can be between 0 and 1 (normalized in the server)
+  const minZoom = 1.0; // No zoom
+  const maxZoom = 1.15; // Maximum zoom level - much subtler (was 2.5)
+  const zoomFactor = minZoom +
+    (Math.min(Math.max(tiltValue, 0), 1) * (maxZoom - minZoom));
+
+  // Apply zoom to the currently selected image
+  const currentImage = document.querySelectorAll(".image-slide")[selectedIndex];
+  if (currentImage) {
+    // Apply faster transition for more responsiveness
+    currentImage.style.transition = "transform 0.15s ease-out";
+
+    // Calculate a much subtler rotation based on tilt value
+    const rotationAmount = tiltValue * 0.5; // Reduced rotation (was 5 degrees)
+
+    // Apply both zoom and rotation
+    currentImage.style.transform =
+      `scale(${zoomFactor}) rotate(${rotationAmount}deg)`;
+
+    // Store the current tilt value for potential use in other animations
+    currentImage.dataset.currentTilt = tiltValue;
+  }
+}
+
+document.addEventListener("DOMContentLoaded", function () {
   const imageContainer = document.getElementById("image-container");
-  let images = [];
-  let selectedIndex = 0;
+  initWebSocket();
 
   async function fetchImages() {
-      try {
-          const response = await fetch("/api/images");
-          if (!response.ok) {
-              throw new Error("Failed to fetch images");
-          }
-
-          const imageData = await response.json();
-          images = imageData.map((img) => img.url);
-
-          // Shuffle the images
-          for (let i = images.length - 1; i > 0; i--) {
-              const j = Math.floor(Math.random() * (i + 1));
-              [images[i], images[j]] = [images[j], images[i]];
-          }
-
-          localStorage.setItem("shuffledImages", JSON.stringify(images));
-          loadImages();
-      } catch (error) {
-          console.error("Error fetching images:", error);
+    try {
+      const response = await fetch("/api/images");
+      if (!response.ok) {
+        throw new Error("Failed to fetch images");
       }
+
+      const imageData = await response.json();
+      images = imageData.map((img) => img.url);
+
+      // Shuffle the images
+      for (let i = images.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [images[i], images[j]] = [images[j], images[i]];
+      }
+
+      localStorage.setItem("shuffledImages", JSON.stringify(images));
+      loadImages();
+    } catch (error) {
+      console.error("Error fetching images:", error);
+    }
   }
 
-
-// this the current function for the weird image effect
+  // this the current function for the weird image effect
   function loadImages() {
-      images.forEach((src, index) => {
-          let img = document.createElement("img");
-          img.src = src;
-          img.classList.add("image-slide");
-          if (index !== 0) {
-              img.style.opacity = "0";
-          }
-          imageContainer.appendChild(img);
-      });
-  }
+    imageContainer.innerHTML = ""; // Clear container before loading new images
 
-  function nextImage() {
-      let currentImage = document.querySelectorAll(".image-slide")[selectedIndex];
-      currentImage.classList.add("flying-away");
-      
-      setTimeout(() => {
-          currentImage.style.display = "none";
-          selectedIndex = (selectedIndex + 1) % images.length;
-          let nextImage = document.querySelectorAll(".image-slide")[selectedIndex];
-          nextImage.style.opacity = "1";
-      }, 800);
+    images.forEach((src, index) => {
+      let img = document.createElement("img");
+      img.src = src;
+      img.classList.add("image-slide");
+
+      // Set initial styles with faster transitions matching the zoom function
+      img.style.transition = "transform 0.15s ease-out, opacity 0.3s ease-out";
+      img.style.transformOrigin = "center center";
+
+      if (index !== 0) {
+        img.style.opacity = "0";
+      } else {
+        // Apply initial transform to the first (visible) image
+        img.style.transform = "scale(1)";
+      }
+
+      imageContainer.appendChild(img);
+    });
+
+    // Start the subtle breathing animation
+    applySubtleBreathing();
   }
 
   document.addEventListener("click", nextImage);
   document.addEventListener("keydown", (event) => {
-      if (event.key === "ArrowRight") nextImage();
+    if (event.key === "ArrowRight") nextImage();
   });
 
   fetchImages();

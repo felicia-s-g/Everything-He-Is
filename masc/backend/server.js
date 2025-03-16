@@ -4,12 +4,11 @@ const https = require("https");
 const WebSocket = require("ws");
 const cors = require("cors");
 const {
-  validateSensorData,
-  generateSignal,
-  normalizeSensorData,
+  extractSensorData,
   getAccelerationIndex,
 } = require("./utils");
 const fs = require("fs");
+const { aggressionLevel, punchDetected, tiltDetected } = require("./signals");
 
 // SSL certificate configuration
 const sslOptions = {
@@ -20,88 +19,14 @@ const sslOptions = {
 const app = express();
 const server = https.createServer(sslOptions, app);
 
-// Baseline calibration values for sensor data
-let baseline = {
-  acceleration: { x: 0, y: 0, z: 0 },
-  orientation: { x: 0, y: 0, z: 0 },
-  isCalibrated: false,
-};
-
 // Enable CORS for all routes
 app.use(cors());
 
 // Create WebSocket server
-const wss = new WebSocket.Server({
+const websocketsServer = new WebSocket.Server({
   server,
   perMessageDeflate: false,
   clientTracking: true,
-});
-
-// Apply baseline calibration to sensor data
-function applyCalibration(sensorData) {
-  if (!baseline.isCalibrated) return sensorData;
-
-  const calibratedData = { ...sensorData };
-
-  if (sensorData.type === "acceleration" && sensorData.acceleration) {
-    calibratedData.acceleration = {
-      x: sensorData.acceleration.x - baseline.acceleration.x,
-      y: sensorData.acceleration.y - baseline.acceleration.y,
-      z: sensorData.acceleration.z - baseline.acceleration.z,
-    };
-  } else if (sensorData.type === "orientation" && sensorData.orientation) {
-    calibratedData.orientation = {
-      x: sensorData.orientation.x - baseline.orientation.x,
-      y: sensorData.orientation.y - baseline.orientation.y,
-      z: sensorData.orientation.z - baseline.orientation.z,
-    };
-  }
-
-  // Normalize the calibrated data to ensure values stay within expected ranges
-  return normalizeSensorData(calibratedData);
-}
-
-// API endpoint to set baseline calibration
-app.post("/api/calibrate", express.json(), (req, res) => {
-  const { acceleration, orientation } = req.body;
-
-  if (acceleration) {
-    baseline.acceleration = acceleration;
-  }
-
-  if (orientation) {
-    baseline.orientation = orientation;
-  }
-
-  baseline.isCalibrated = true;
-
-  res.json({
-    success: true,
-    message: "Calibration successful",
-    baseline,
-  });
-});
-
-// API endpoint to reset calibration
-app.post("/api/reset-calibration", (req, res) => {
-  baseline = {
-    acceleration: { x: 0, y: 0, z: 0 },
-    orientation: { x: 0, y: 0, z: 0 },
-    isCalibrated: false,
-  };
-
-  res.json({
-    success: true,
-    message: "Calibration reset successful",
-  });
-});
-
-// API endpoint to get current calibration
-app.get("/api/calibration", (req, res) => {
-  res.json({
-    isCalibrated: baseline.isCalibrated,
-    baseline,
-  });
 });
 
 // HTTP Routes for serving web pages / script files / images.
@@ -164,125 +89,97 @@ app.get("/api/images", (req, res) => {
   });
 });
 
-// Store recent sensor readings (rolling window)
-const sensorReadings = [];
-const MAX_READINGS = 5; // Keep last 5 readings for analysis
-
-function broadcastOrientation(orientation) {
-  wss.clients.forEach((client) => {
-    if (
-      client.path === "/ws/raw-data-output" &&
-      client.readyState === WebSocket.OPEN
-    ) {
-      client.send(JSON.stringify({
-        type: "orientation",
-        timestamp: new Date().toISOString(),
-        orientation,
-      }));
-    }
-  });
+function sendToClients(server, channel, message) {
+  if (server.clients?.size > 0) {
+    server.clients.forEach((client) => {
+      if (client.path === channel && client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(message));
+      }
+    });
+  }
 }
 
-function broadcastPunchIntensity(intensity) {
-  wss.clients.forEach((client) => {
-    if (
-      client.path === "/ws/data-output" && client.readyState === WebSocket.OPEN
-    ) {
-      client.send(JSON.stringify({
-        type: "punch_intensity",
-        timestamp: new Date().toISOString(),
-        punchIntensity: intensity,
-      }));
+function punchDetector(server) {
+  const signal = punchDetected(5);
+
+  return (sensorData) => {
+    const punch = signal(sensorData);
+    if (punch) {
+      sendToClients(server, "/ws/ui-signals", punch);
     }
-  });
+  };
 }
 
-function broadcastRawSensorData(sensorData) {
-  wss.clients.forEach((client) => {
-    if (
-      client.path === "/ws/raw-data-output" &&
-      client.readyState === WebSocket.OPEN
-    ) {
-      client.send(JSON.stringify({
-        type: "raw_sensor_data",
-        timestamp: new Date().toISOString(),
-        sensorData: sensorData,
-      }));
+function tiltDetector(server) {
+  const signal = tiltDetected();
+
+  return (sensorData) => {
+    const tilt = signal(sensorData);
+
+    if (tilt) {
+      sendToClients(server, "/ws/ui-signals", {
+        type: "tilt",
+        tilt: tilt.tilt,
+      });
     }
-  });
+  };
+}
+function aggresionDetector(server) {
+  const signal = aggressionLevel(0.95);
+
+  return (sensorData) => {
+    const aggression = signal(sensorData);
+    if (aggression) {
+      sendToClients(server, "/ws/ui-signals", aggression);
+    }
+  };
+}
+
+function throttledDebug(server) {
+  let lastSent = 0;
+  const THROTTLE_TIME = 100; // 100ms
+
+  return (sensorData) => {
+    const now = Date.now();
+    if (now - lastSent > THROTTLE_TIME) {
+      sendToClients(server, "/ws/debug", sensorData);
+      lastSent = now;
+    }
+  };
 }
 
 // WebSocket connection handling
-wss.on("connection", (ws, req) => {
+websocketsServer.on("connection", (ws, req) => {
   // Store the path in the WebSocket object for later reference
   ws.path = req.url;
 
+  let detectPunch = punchDetector(websocketsServer);
+  let aggression = aggresionDetector(websocketsServer);
+  let tilt = tiltDetector(websocketsServer);
+  let debug = throttledDebug(websocketsServer);
   // The phone sends sensor data here
   if (req.url === "/ws/data-input") {
     // Data input handling
     ws.on("message", (message) => {
       try {
-        const sensorData = JSON.parse(message.toString());
-        const validSensorData = validateSensorData(sensorData);
+        const sensorData = extractSensorData(JSON.parse(message.toString()));
 
-        if (validSensorData) {
-          // Apply calibration to the sensor data
-          const calibratedData = applyCalibration(validSensorData);
-
-          // Broadcast raw sensor data to raw-data-output clients
-          broadcastRawSensorData(calibratedData);
-
-          // Add new reading to the rolling window
-          sensorReadings.push(calibratedData);
-          if (sensorReadings.length > MAX_READINGS) {
-            sensorReadings.shift(); // Remove oldest reading
-          }
-
-          if (sensorData.type === "acceleration") {
-            const acceleration = getAccelerationIndex(sensorData);
-            if (acceleration > 7) {
-              console.log(acceleration);
-              broadcastPunchIntensity(acceleration);
-            }
-          }
-
-          if (sensorData.type === "orientation") {
-            broadcastOrientation(sensorData.orientation);
-          }
+        if (!sensorData) {
+          return;
         }
+        debug(sensorData);
+        detectPunch(sensorData);
+        aggression(sensorData);
+        tilt(sensorData);
       } catch (error) {
-        console.error("Error processing sensor data:", error);
+        console.error("Error processing WebSocket message:", error);
       }
     });
-  } else if (req.url === "/ws/data-output") {
-    // Send initial connection confirmation
-    ws.send(JSON.stringify({
-      timestamp: new Date().toISOString(),
-      message: "Connected to punch intensity stream",
-    }));
-  } else if (req.url === "/ws/raw-data-output") {
-    // Send initial connection confirmation for raw data stream
-    ws.send(JSON.stringify({
-      timestamp: new Date().toISOString(),
-      message: "Connected to raw sensor data stream",
-    }));
   }
-
-  ws.on("error", (error) => {
-    console.error("WebSocket error:", error);
-  });
-
-  ws.on("close", () => {
-    console.log("WebSocket connection closed for path:", req.url);
-  });
 });
 
-// Error handling for WebSocket server
-wss.on("error", (error) => {
-  console.error("WebSocket server error:", error);
-});
-
-const PORT = process.env.PORT || 443;
+// Start server
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`HTTPS Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });

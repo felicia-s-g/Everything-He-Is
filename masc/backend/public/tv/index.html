@@ -7,6 +7,34 @@
   <title>Everything He Is</title>
   <link rel="stylesheet" href="style.css">
   <script src="script.js" defer></script>
+  <style>
+    /* Additional styles for tilt zoom effect */
+    #image-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background-color: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .image-slide {
+      position: absolute;
+      max-width: 90%;
+      max-height: 90%;
+      object-fit: contain;
+      transition: transform 0.15s ease-out, opacity 0.3s ease-out;
+      transform-origin: center center;
+    }
+
+    .flying-away {
+      transform: scale(0.1) rotate(15deg) translateY(-1000px);
+      opacity: 0;
+      transition: all 0.5s ease-out;
+    }
+  </style>
 </head>
 
 <body>
