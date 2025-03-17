@@ -122,6 +122,15 @@
       color: #222;
     }
 
+    .trajectory-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
     .config-panel {
       margin-top: 20px;
       padding: 16px;
@@ -367,9 +376,32 @@
 
   <div class="container">
     <div class="visualization-container">
-      <h2>Phone Orientation</h2>
+      <h2>Phone Orientation & Position</h2>
       <button id="calibrate-orientation" class="calibrate-button">Calibrate Orientation</button>
-      <div id="phone-container"></div>
+      <button id="reset-position" class="calibrate-button" style="background-color: #ff9800;">Reset Position</button>
+      <div id="phone-container">
+        <canvas id="trajectory-canvas" class="trajectory-canvas"></canvas>
+      </div>
+
+      <!-- Position data display -->
+      <div class="sensor-data">
+        <div class="sensor-value">
+          <h3>Position X</h3>
+          <p id="position-x">0.00</p>
+        </div>
+        <div class="sensor-value">
+          <h3>Position Y</h3>
+          <p id="position-y">0.00</p>
+        </div>
+        <div class="sensor-value">
+          <h3>Position Z</h3>
+          <p id="position-z">0.00</p>
+        </div>
+        <div class="sensor-value">
+          <h3>Trajectory Length</h3>
+          <p id="trajectory-points">0</p>
+        </div>
+      </div>
 
       <!-- Punch Configuration Panel -->
       <div class="config-panel">
@@ -457,29 +489,6 @@
           </div>
         </div>
 
-        <!-- Add new config group for photo scrolling -->
-        <div class="config-group">
-          <div class="config-title">Photo Scrolling Settings</div>
-          <div class="config-controls">
-            <div class="config-control">
-              <label for="scroll-base-multiplier">Base Scroll Multiplier:</label>
-              <input type="number" id="scroll-base-multiplier" value="1.0" min="0.1" max="10" step="0.1">
-              <small>Controls overall scrolling speed for all punch strengths</small>
-            </div>
-            <div class="config-control">
-              <label for="scroll-scaling-factor">Scaling Factor:</label>
-              <input type="number" id="scroll-scaling-factor" value="0.2" min="0.05" max="2" step="0.05">
-              <small>Controls how punch strength affects number of photos scrolled (higher = more photos per punch
-                strength)</small>
-            </div>
-            <div class="config-control">
-              <label for="scroll-max-photos">Maximum Photos:</label>
-              <input type="number" id="scroll-max-photos" value="10" min="1" max="50" step="1">
-              <small>Maximum number of photos to scroll per punch, regardless of strength</small>
-            </div>
-          </div>
-        </div>
-
         <button id="apply-config">Apply Configuration</button>
       </div>
 
@@ -499,15 +508,6 @@
         <div class="punch-info">
           <p>Last Punch: <span id="last-punch-value">None</span></p>
           <p>Classification: <span id="last-punch-classification">None</span></p>
-        </div>
-      </div>
-
-      <div class="punch-visualization">
-        <h3>Photo Scrolling Preview</h3>
-        <div class="punch-info">
-          <p>For a <span class="weak">weak</span> punch: <span id="weak-photo-count">0</span> photos</p>
-          <p>For a <span class="normal">normal</span> punch: <span id="normal-photo-count">0</span> photos</p>
-          <p>For a <span class="strong">strong</span> punch: <span id="strong-photo-count">0</span> photos</p>
         </div>
       </div>
 
@@ -549,6 +549,9 @@
           <label>
             <input type="checkbox" id="filter-orientation"> Orientation
           </label>
+          <label>
+            <input type="checkbox" id="filter-position"> Position
+          </label>
         </div>
         <button id="clear-messages">Clear Messages</button>
       </div>
@@ -566,14 +569,25 @@
     const accelXElement = document.getElementById('accel-x');
     const accelYElement = document.getElementById('accel-y');
     const accelZElement = document.getElementById('accel-z');
+    const positionXElement = document.getElementById('position-x');
+    const positionYElement = document.getElementById('position-y');
+    const positionZElement = document.getElementById('position-z');
+    const trajectoryPointsElement = document.getElementById('trajectory-points');
 
     let ws;
 
     // Last processed sensor data
     let lastSensorData = {
       acceleration: { x: 0, y: 0, z: 0 },
-      orientation: { x: 0, y: 0, z: 0, absolute: false, _lastUpdate: 0 }
+      orientation: { x: 0, y: 0, z: 0, absolute: false, _lastUpdate: 0 },
+      position: { x: 0, y: 0, z: 0, _lastUpdate: 0 }
     };
+
+    // Trajectory data
+    let trajectoryPoints = [];
+    let maxTrajectoryPoints = 1000;
+    let trajectoryCanvas;
+    let trajectoryContext;
 
     // Calibration quaternion
     let calibrationQuaternion = new THREE.Quaternion();
@@ -601,11 +615,9 @@
       system: true,
       error: true,
       acceleration: false,
-      orientation: false
+      orientation: false,
+      position: false
     };
-
-    // Add this variable near the top with other state variables
-    let lastPunchTime = 0;
 
     // Initialize Three.js
     function initThreeJs() {
@@ -618,6 +630,12 @@
       renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(phoneContainer.clientWidth, phoneContainer.clientHeight);
       phoneContainer.appendChild(renderer.domElement);
+
+      // Initialize trajectory canvas
+      trajectoryCanvas = document.getElementById('trajectory-canvas');
+      trajectoryCanvas.width = phoneContainer.clientWidth;
+      trajectoryCanvas.height = phoneContainer.clientHeight;
+      trajectoryContext = trajectoryCanvas.getContext('2d');
 
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
       scene.add(ambientLight);
@@ -645,6 +663,9 @@
       });
       phoneModel = new THREE.Mesh(phoneGeometry, phoneMaterial);
       phoneGroup.add(phoneModel);
+
+      // Store device position (will be updated from position events)
+      phoneModel.userData.position = new THREE.Vector3(0, 0, 0);
 
       // Phone screen
       const screenGeometry = new THREE.BoxGeometry(1.8, 3.6, 0.01);
@@ -747,6 +768,14 @@
     // Animation loop
     function animate() {
       requestAnimationFrame(animate);
+
+      // Update phone position in the scene if we have position data
+      if (phoneModel && phoneModel.userData.phoneGroup) {
+        // Apply the position from sensor data to the phone group
+        const devicePosition = phoneModel.userData.position;
+        phoneModel.userData.phoneGroup.position.copy(devicePosition);
+      }
+
       renderer.render(scene, camera);
     }
 
@@ -840,11 +869,6 @@
       document.getElementById('direction-tolerance').value = punchConfig.directionFilter?.tolerance || 45;
       document.getElementById('preferred-direction').value = punchConfig.directionFilter?.direction || "positive-x";
 
-      // Add new photo scrolling configuration
-      document.getElementById('scroll-base-multiplier').value = punchConfig.photoScroll?.baseMultiplier || 1.0;
-      document.getElementById('scroll-scaling-factor').value = punchConfig.photoScroll?.scalingFactor || 0.2;
-      document.getElementById('scroll-max-photos').value = punchConfig.photoScroll?.maxPhotos || 10;
-
       // Update the visual indicators
       updatePunchThresholds();
     }
@@ -866,39 +890,32 @@
         processOrientationData(data.orientation);
         updatePhoneVisualization();
       }
+      // Handle position data
+      else if (data.type === 'position' && data.position) {
+        processPositionData(data.position);
+      }
       // Handle punch data
       else if (data.type === 'punch') {
-        const now = Date.now();
-        const cooldown = parseInt(document.getElementById('punch-cooldown').value);
+        lastPunchValueElement.textContent = data.acceleration ? data.acceleration.toFixed(2) : 'N/A';
+        lastPunchClassificationElement.textContent = data.classification || 'Unknown';
+        lastPunchClassificationElement.className = '';
+        lastPunchClassificationElement.classList.add(data.classification || 'unknown');
 
-        // Only process punch if outside cooldown period
-        if (now - lastPunchTime >= cooldown) {
-          lastPunchTime = now;
+        // Get max value from the input field
+        const maxValue = parseFloat(document.getElementById('punch-max-value').value);
+        const percentage = Math.min(((data.acceleration || 0) / maxValue) * 100, 100);
+        punchBarElement.style.width = `${percentage}%`;
 
-          lastPunchValueElement.textContent = data.acceleration ? data.acceleration.toFixed(2) : 'N/A';
-          lastPunchClassificationElement.textContent = data.classification || 'Unknown';
-          lastPunchClassificationElement.className = '';
-          lastPunchClassificationElement.classList.add(data.classification || 'unknown');
-
-          // Get max value from the input field
-          const maxValue = parseFloat(document.getElementById('punch-max-value').value);
-          const percentage = Math.min(((data.acceleration || 0) / maxValue) * 100, 100);
-          punchBarElement.style.width = `${percentage}%`;
-
-          punchBarElement.className = 'punch-bar';
-          if (data.classification) {
-            punchBarElement.classList.add(data.classification);
-          }
-
-          punchBarElement.style.transition = 'width 0.1s linear';
-          setTimeout(() => {
-            punchBarElement.style.transition = 'width 2s ease-in-out';
-            punchBarElement.style.width = '0%';
-          }, 100);
-        } else {
-          // Optionally log or show a message about ignored punch due to cooldown
-          console.log(`Punch ignored due to cooldown (${now - lastPunchTime}ms < ${cooldown}ms)`);
+        punchBarElement.className = 'punch-bar';
+        if (data.classification) {
+          punchBarElement.classList.add(data.classification);
         }
+
+        punchBarElement.style.transition = 'width 0.1s linear';
+        setTimeout(() => {
+          punchBarElement.style.transition = 'width 2s ease-in-out';
+          punchBarElement.style.width = '0%';
+        }, 100);
       }
       // Handle system message with config update
       else if (data.type === 'system' && data.punchConfig) {
@@ -932,26 +949,18 @@
       const gamma = lastSensorData.orientation.z;
 
       // Convert to radians
-      const alphaRad = THREE.MathUtils.degToRad(alpha) * - 1;
+      const alphaRad = THREE.MathUtils.degToRad(alpha);
       const betaRad = THREE.MathUtils.degToRad(beta);
-      const gammaRad = THREE.MathUtils.degToRad(gamma) * - 1;
+      const gammaRad = THREE.MathUtils.degToRad(gamma);
 
       // Create quaternion from device orientation
-      // Apply a 90-degree rotation around X to make gamma=0 represent a flat phone
-      // Apply a 90-degree rotation around Y to make beta=0 represent a flat phone
       const deviceQuaternion = new THREE.Quaternion()
         .setFromEuler(new THREE.Euler(
-          betaRad,  // Flipped beta to fix inverted rotation
-          gammaRad, // Flipped gamma to fix inverted rotation
-          alphaRad,  // Keep alpha as is
+          -betaRad,
+          gammaRad,
+          -alphaRad,
           'ZXY'
         ));
-
-      // Apply additional rotation to make gamma=0 show as flat
-      const flatCorrection = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(Math.PI / 2, 0, 0)
-      );
-      deviceQuaternion.premultiply(flatCorrection);
 
       // Reset rotation
       phoneGroup.rotation.set(0, 0, 0);
@@ -968,6 +977,118 @@
       }
     }
 
+    // Process position data and update visualization
+    function processPositionData(position) {
+      // Update position data
+      lastSensorData.position = {
+        x: position.x,
+        y: position.y,
+        z: position.z,
+        _lastUpdate: Date.now()
+      };
+
+      // Update position display
+      positionXElement.textContent = position.x.toFixed(2);
+      positionYElement.textContent = position.y.toFixed(2);
+      positionZElement.textContent = position.z.toFixed(2);
+
+      // Update the phone model position
+      if (phoneModel) {
+        phoneModel.userData.position.set(position.x, position.y, position.z);
+
+        // Add point to trajectory
+        addTrajectoryPoint(position.x, position.y, position.z);
+      }
+    }
+
+    // Add a point to the trajectory and update visualization
+    function addTrajectoryPoint(x, y, z) {
+      trajectoryPoints.push({ x, y, z });
+
+      // Limit the number of trajectory points
+      if (trajectoryPoints.length > maxTrajectoryPoints) {
+        trajectoryPoints.shift();
+      }
+
+      trajectoryPointsElement.textContent = trajectoryPoints.length;
+
+      // Update trajectory visualization
+      drawTrajectory();
+    }
+
+    // Draw the trajectory on the canvas
+    function drawTrajectory() {
+      if (!trajectoryContext || trajectoryPoints.length < 2) return;
+
+      // Clear the canvas
+      trajectoryContext.clearRect(0, 0, trajectoryCanvas.width, trajectoryCanvas.height);
+
+      // Set drawing style
+      trajectoryContext.strokeStyle = 'rgba(255, 140, 0, 0.8)';
+      trajectoryContext.lineWidth = 2;
+      trajectoryContext.beginPath();
+
+      // Get first point and project it to screen coordinates
+      const start = trajectoryPoints[0];
+      const startVector = new THREE.Vector3(start.x, start.y, start.z);
+      const startProjected = projectToScreen(startVector);
+
+      trajectoryContext.moveTo(startProjected.x, startProjected.y);
+
+      // Draw lines between all points
+      for (let i = 1; i < trajectoryPoints.length; i++) {
+        const point = trajectoryPoints[i];
+        const vector = new THREE.Vector3(point.x, point.y, point.z);
+        const projected = projectToScreen(vector);
+
+        trajectoryContext.lineTo(projected.x, projected.y);
+      }
+
+      trajectoryContext.stroke();
+    }
+
+    // Project 3D position to screen coordinates
+    function projectToScreen(position) {
+      const vector = position.clone();
+      vector.project(camera);
+
+      return {
+        x: (vector.x * 0.5 + 0.5) * trajectoryCanvas.width,
+        y: (-vector.y * 0.5 + 0.5) * trajectoryCanvas.height
+      };
+    }
+
+    // Reset device position and trajectory
+    function resetPosition() {
+      // Clear trajectory
+      trajectoryPoints = [];
+      trajectoryPointsElement.textContent = '0';
+
+      if (trajectoryContext) {
+        trajectoryContext.clearRect(0, 0, trajectoryCanvas.width, trajectoryCanvas.height);
+      }
+
+      // Reset position data
+      lastSensorData.position = { x: 0, y: 0, z: 0, _lastUpdate: Date.now() };
+
+      // Update position display
+      positionXElement.textContent = '0.00';
+      positionYElement.textContent = '0.00';
+      positionZElement.textContent = '0.00';
+
+      // Reset phone model position
+      if (phoneModel && phoneModel.userData.phoneGroup) {
+        phoneModel.userData.position.set(0, 0, 0);
+        phoneModel.userData.phoneGroup.position.set(0, 0, 0);
+      }
+
+      // Send reset command to server
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resetPosition' }));
+        addMessage({ type: 'system', message: 'Position reset requested' });
+      }
+    }
+
     function addMessage(data) {
       const now = Date.now();
 
@@ -979,6 +1100,10 @@
         }
         lastAccelerationMessageTime = now;
         if (sensorUpdatesSkipped > 0) {
+          addMessage({
+            type: 'system',
+            message: `Skipped ${sensorUpdatesSkipped} acceleration updates`
+          });
           sensorUpdatesSkipped = 0;
         }
       } else if (data.type === 'orientation') {
@@ -1051,11 +1176,6 @@
           enabled: document.getElementById('direction-filter-enabled').value === "true",
           tolerance: parseFloat(document.getElementById('direction-tolerance').value),
           direction: document.getElementById('preferred-direction').value
-        },
-        photoScroll: {
-          baseMultiplier: Math.max(0.1, parseFloat(document.getElementById('scroll-base-multiplier').value) || 1.0),
-          scalingFactor: Math.max(0.05, parseFloat(document.getElementById('scroll-scaling-factor').value) || 0.2),
-          maxPhotos: Math.max(1, parseInt(document.getElementById('scroll-max-photos').value) || 10)
         }
       };
 
@@ -1087,21 +1207,11 @@
 
     function sendConfigViaWebSocket(punchConfig) {
       if (ws && ws.readyState === WebSocket.OPEN) {
-        // Add logging to see the actual values being sent
-        console.log('Sending photo scroll config:', {
-          baseMultiplier: punchConfig.photoScroll.baseMultiplier,
-          scalingFactor: punchConfig.photoScroll.scalingFactor,
-          maxPhotos: punchConfig.photoScroll.maxPhotos
-        });
-
         ws.send(JSON.stringify({
           type: 'config',
           punchConfig
         }));
-        addMessage({
-          type: 'system',
-          message: `Punch configuration sent via WebSocket (Photo scroll: base=${punchConfig.photoScroll.baseMultiplier}, scale=${punchConfig.photoScroll.scalingFactor}, max=${punchConfig.photoScroll.maxPhotos})`
-        });
+        addMessage({ type: 'system', message: 'Punch configuration sent via WebSocket' });
       } else {
         addMessage({ type: 'error', message: 'WebSocket not connected. Cannot send configuration.' });
       }
@@ -1153,6 +1263,10 @@
       messageFilters.orientation = e.target.checked;
       updateMessageVisibility();
     });
+    document.getElementById('filter-position').addEventListener('change', (e) => {
+      messageFilters.position = e.target.checked;
+      updateMessageVisibility();
+    });
 
     document.getElementById('clear-messages').addEventListener('click', () => {
       messageList.innerHTML = '';
@@ -1179,23 +1293,17 @@
       const gamma = lastSensorData.orientation.z;
 
       // Convert to radians
-      const alphaRad = THREE.MathUtils.degToRad(alpha) * - 1;
+      const alphaRad = THREE.MathUtils.degToRad(alpha);
       const betaRad = THREE.MathUtils.degToRad(beta);
-      const gammaRad = THREE.MathUtils.degToRad(gamma) * - 1;
+      const gammaRad = THREE.MathUtils.degToRad(gamma);
 
-      // Create calibration quaternion from current orientation with the same 
-      // flat correction as in updatePhoneVisualization
-      const baseQuaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(
-        betaRad,  // Flipped beta to fix inverted rotation
-        gammaRad, // Flipped gamma to fix inverted rotation
-        alphaRad,  // Keep alpha as is
+      // Create calibration quaternion from current orientation
+      calibrationQuaternion.setFromEuler(new THREE.Euler(
+        -betaRad,
+        gammaRad,
+        -alphaRad,
         'ZXY'
       ));
-
-      const flatCorrection = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(Math.PI / 2, 0, 0)
-      );
-      calibrationQuaternion.copy(baseQuaternion).premultiply(flatCorrection);
 
       // Create inverse quaternion for calibration
       inverseCalibrationQuaternion.copy(calibrationQuaternion).invert();
@@ -1213,40 +1321,8 @@
       });
     }
 
-    // Add this JavaScript function to update the preview
-    function updatePhotoScrollPreview() {
-      const baseMultiplier = parseFloat(document.getElementById('scroll-base-multiplier').value);
-      const scalingFactor = parseFloat(document.getElementById('scroll-scaling-factor').value);
-      const maxPhotos = parseInt(document.getElementById('scroll-max-photos').value);
-
-      const weakThreshold = parseFloat(document.getElementById('weak-threshold').value);
-      const normalThreshold = parseFloat(document.getElementById('normal-threshold').value);
-      const strongThreshold = parseFloat(document.getElementById('strong-threshold').value);
-
-      // Calculate photos scrolled for each punch type
-      function calculatePhotos(strength) {
-        const photoCount = Math.min(
-          Math.round(baseMultiplier * (1 + strength * scalingFactor)),
-          maxPhotos
-        );
-        return Math.max(1, photoCount); // At least 1 photo
-      }
-
-      document.getElementById('weak-photo-count').textContent = calculatePhotos(weakThreshold);
-      document.getElementById('normal-photo-count').textContent = calculatePhotos(normalThreshold);
-      document.getElementById('strong-photo-count').textContent = calculatePhotos(strongThreshold);
-    }
-
-    // Add this to the event listeners for the photo scrolling inputs
-    document.getElementById('scroll-base-multiplier').addEventListener('input', updatePhotoScrollPreview);
-    document.getElementById('scroll-scaling-factor').addEventListener('input', updatePhotoScrollPreview);
-    document.getElementById('scroll-max-photos').addEventListener('input', updatePhotoScrollPreview);
-    document.getElementById('weak-threshold').addEventListener('input', updatePhotoScrollPreview);
-    document.getElementById('normal-threshold').addEventListener('input', updatePhotoScrollPreview);
-    document.getElementById('strong-threshold').addEventListener('input', updatePhotoScrollPreview);
-
-    // Call this initially to set up the preview
-    updatePhotoScrollPreview();
+    // Add reset position button handler
+    document.getElementById('reset-position').addEventListener('click', resetPosition);
   </script>
 </body>
 

@@ -1,0 +1,78 @@
+:root {
+  --glow-color: #00f3ff;
+  --distortion-speed: 0.5s;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #000;
+  font-family: sans-serif;
+}
+
+#trippy-container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  perspective: 2000px;
+  z-index: 10;
+}
+
+#background-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.image-slide {
+  position: absolute;
+  max-width: 95%;
+  max-height: 95%;
+  object-fit: contain;
+  will-change: transform, opacity, filter;
+  transform-origin: center;
+  backface-visibility: hidden;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.warped {
+  animation: warpEffect var(--distortion-speed) ease-out;
+  filter: saturate(150%) contrast(120%);
+}
+
+.glow-effect {
+  box-shadow: 0 0 20px var(--glow-color);
+  animation: glowPulse 2s infinite alternate;
+}
+
+.punch-transition {
+  animation: punchOut 0.5s cubic-bezier(0.14, 1.35, 0.54, 1);
+}
+
+@keyframes warpEffect {
+  0% { transform: perspective(1000px) rotateY(0deg); filter: saturate(100%) hue-rotate(0deg); }
+  25% { transform: perspective(1000px) rotateY(15deg) scale(1.05); filter: saturate(150%) hue-rotate(45deg); }
+  50% { transform: perspective(1000px) rotateY(-10deg) scale(0.95); filter: saturate(200%) hue-rotate(-60deg); }
+  75% { transform: perspective(1000px) rotateY(5deg) scale(1.02); filter: saturate(150%) hue-rotate(30deg); }
+  100% { transform: perspective(1000px) rotateY(0deg); filter: saturate(100%) hue-rotate(0deg); }
+}
+
+@keyframes glowPulse {
+  0% { box-shadow: 0 0 10px rgba(0, 243, 255, 0.5); }
+  100% { box-shadow: 0 0 30px rgba(0, 243, 255, 0.9), 0 0 50px rgba(255, 0, 255, 0.5); }
+}
+
+@keyframes punchOut {
+  0% { transform: scale(1) translateZ(0); filter: blur(0); }
+  50% { transform: scale(1.5) translateZ(500px); filter: blur(5px) brightness(1.5); }
+  100% { transform: scale(0.1) translateZ(-1000px); filter: blur(20px) brightness(0); }
+} 

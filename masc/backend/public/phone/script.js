@@ -109,6 +109,7 @@ async function getAccel() {
                 x: event.alpha,
                 y: event.beta,
                 z: event.gamma,
+                absolute: event.absolute,
               },
             }),
           );

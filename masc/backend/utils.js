@@ -21,6 +21,12 @@ export function validateOrientationData(sensorData) {
     console.error("Invalid orientation data format received");
     return;
   }
+  // Ensure the absolute property is present, but allow it to be false
+  if (sensorData.orientation.absolute === undefined) {
+    console.log("Orientation data missing absolute property");
+    // Set default to false if not provided
+    sensorData.orientation.absolute = false;
+  }
   return sensorData;
 }
 
@@ -32,12 +38,20 @@ export function extractSensorData(sensorData) {
   }
 }
 
-export function getAccelerationIndex(sensorData) {
-  // return the largest acceleration value
-  const acceleration = Math.max(
-    Math.abs(sensorData.acceleration.x),
-    Math.abs(sensorData.acceleration.y),
-    Math.abs(sensorData.acceleration.z),
+export function getAccelerationIndex(
+  sensorData,
+  weights = { x: 1.0, y: 1.0, z: 1.0 },
+) {
+  // Apply weights to each axis and return the largest acceleration value
+  const weightedAcceleration = {
+    x: Math.abs(sensorData.acceleration.x) * weights.x,
+    y: Math.abs(sensorData.acceleration.y) * weights.y,
+    z: Math.abs(sensorData.acceleration.z) * weights.z,
+  };
+
+  return Math.max(
+    weightedAcceleration.x,
+    weightedAcceleration.y,
+    weightedAcceleration.z,
   );
-  return acceleration;
 }

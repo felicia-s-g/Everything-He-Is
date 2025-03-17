@@ -8,7 +8,8 @@ const {
   getAccelerationIndex,
 } = require("./utils");
 const fs = require("fs");
-const { aggressionLevel, punchDetected, tiltDetected } = require("./signals");
+const { classifiedPunchDetected } = require("./signals");
+const { config, updateConfig, getConfig } = require("./config");
 
 // SSL certificate configuration
 const sslOptions = {
@@ -89,62 +90,64 @@ app.get("/api/images", (req, res) => {
   });
 });
 
+// REST API for getting/updating config
+app.use(express.json());
+
+// Get current config
+app.get("/api/config", (req, res) => {
+  res.json(getConfig());
+});
+
+// Update config
+app.post("/api/config", (req, res) => {
+  try {
+    updateConfig(req.body);
+    res.json({
+      success: true,
+      message: "Configuration updated",
+      config: getConfig(),
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: "Failed to update configuration",
+      error: error.message,
+    });
+  }
+});
+
 function sendToClients(server, channel, message) {
-  if (server.clients?.size > 0) {
+  let clientCount = 0;
+  if (server.clients && server.clients.size > 0) {
     server.clients.forEach((client) => {
       if (client.path === channel && client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify(message));
+        clientCount++;
       }
     });
   }
 }
 
-function punchDetector(server) {
-  const signal = punchDetected(5);
+function classifiedPunchDetector(server) {
+  // Use the punch detector from signals.js which now uses the config singleton
+  const signal = classifiedPunchDetected();
 
   return (sensorData) => {
     const punch = signal(sensorData);
     if (punch) {
+      // Send to UI signals for the TV interface
       sendToClients(server, "/ws/ui-signals", punch);
-    }
-  };
-}
 
-function tiltDetector(server) {
-  const signal = tiltDetected();
-
-  return (sensorData) => {
-    const tilt = signal(sensorData);
-
-    if (tilt) {
-      sendToClients(server, "/ws/ui-signals", {
-        type: "tilt",
-        tilt: tilt.tilt,
-      });
-    }
-  };
-}
-function aggresionDetector(server) {
-  const signal = aggressionLevel(0.95);
-
-  return (sensorData) => {
-    const aggression = signal(sensorData);
-    if (aggression) {
-      sendToClients(server, "/ws/ui-signals", aggression);
+      // Also send to debug interface
+      sendToClients(server, "/ws/debug", punch);
     }
   };
 }
 
 function throttledDebug(server) {
-  let lastSent = 0;
-  const THROTTLE_TIME = 100; // 100ms
-
+  // Remove throttling entirely
   return (sensorData) => {
-    const now = Date.now();
-    if (now - lastSent > THROTTLE_TIME) {
-      sendToClients(server, "/ws/debug", sensorData);
-      lastSent = now;
-    }
+    sendToClients(server, "/ws/debug", sensorData);
   };
 }
 
@@ -153,10 +156,9 @@ websocketsServer.on("connection", (ws, req) => {
   // Store the path in the WebSocket object for later reference
   ws.path = req.url;
 
-  let detectPunch = punchDetector(websocketsServer);
-  let aggression = aggresionDetector(websocketsServer);
-  let tilt = tiltDetector(websocketsServer);
+  let detectPunch = classifiedPunchDetector(websocketsServer);
   let debug = throttledDebug(websocketsServer);
+
   // The phone sends sensor data here
   if (req.url === "/ws/data-input") {
     // Data input handling
@@ -167,12 +169,64 @@ websocketsServer.on("connection", (ws, req) => {
         if (!sensorData) {
           return;
         }
+
+        // Log the absolute flag for orientation data
+        if (
+          sensorData.type === "orientation" &&
+          sensorData.orientation.absolute !== undefined
+        ) {
+          console.log(
+            `Orientation absolute flag: ${sensorData.orientation.absolute}`,
+          );
+        }
+
+        // Send data immediately without throttling
         debug(sensorData);
         detectPunch(sensorData);
-        aggression(sensorData);
-        tilt(sensorData);
       } catch (error) {
         console.error("Error processing WebSocket message:", error);
+      }
+    });
+  } // Debug interface
+  else if (req.url === "/ws/debug") {
+    // Send current configuration to the newly connected client
+    ws.send(JSON.stringify({
+      type: "system",
+      message: "Current punch configuration",
+      punchConfig: config.punch,
+    }));
+
+    // Handle configuration messages from the debug interface
+    ws.on("message", (message) => {
+      try {
+        const data = JSON.parse(message.toString());
+
+        // Handle configuration updates
+        if (data.type === "config" && data.punchConfig) {
+          // Update the global config through the singleton
+          updateConfig({ punch: data.punchConfig });
+
+          console.log("Updated punch configuration:", config.punch);
+
+          // Re-initialize the punch detector with new configuration
+          detectPunch = classifiedPunchDetector(websocketsServer);
+
+          // Send confirmation back to all debug clients
+          sendToClients(websocketsServer, "/ws/debug", {
+            type: "system",
+            message: "Punch configuration updated",
+            punchConfig: config.punch,
+          });
+        } else if (data.type === "getConfig") {
+          // Send current configuration to the client that requested it
+          ws.send(JSON.stringify({
+            type: "system",
+            message: "Current punch configuration",
+            punchConfig: config.punch,
+          }));
+        }
+      } catch (error) {
+        console.error("Error processing debug WebSocket message:", error);
       }
     });
   }

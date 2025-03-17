@@ -1,0 +1,1967 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Punch Classification Debug</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // Make THREE available globally for existing code
+    window.THREE = THREE;
+    window.OrbitControls = OrbitControls;
+
+    // Initialize global variables that need THREE
+    const calibrationQuaternion = new THREE.Quaternion();
+    const inverseCalibrationQuaternion = new THREE.Quaternion();
+    let isCalibrated = false;
+
+    // Wait for DOM to be fully loaded
+    window.addEventListener('DOMContentLoaded', () => {
+      // Initialize Three.js quaternions after THREE is available globally
+      calibrationQuaternion = new THREE.Quaternion();
+      inverseCalibrationQuaternion = new THREE.Quaternion();
+
+      // *** Start by declaring all variables first ***
+      const statusElement = document.getElementById('connection-status');
+      const dataContainer = document.getElementById('data-container');
+      const messageList = document.getElementById('message-list');
+      const phoneContainer = document.getElementById('phone-container');
+      const positionContainer = document.getElementById('position-container');
+
+      // Sensor data display elements
+      const accelXElement = document.getElementById('accel-x');
+      const accelYElement = document.getElementById('accel-y');
+      const accelZElement = document.getElementById('accel-z');
+
+      // Position data display elements
+      const positionXElement = document.getElementById('position-x');
+      const positionYElement = document.getElementById('position-y');
+      const positionZElement = document.getElementById('position-z');
+      const velocityXElement = document.getElementById('velocity-x');
+      const velocityYElement = document.getElementById('velocity-y');
+      const velocityZElement = document.getElementById('velocity-z');
+
+      // Message throttling settings
+      const messageThrottleTime = 500; // ms between sensor data updates
+      let lastAccelerationMessageTime = 0;
+      let lastOrientationMessageTime = 0;
+      let lastPositionMessageTime = 0;
+      let sensorUpdatesSkipped = 0;
+
+      // Message filter state
+      const messageFilters = {
+        punch: true,
+        system: true,
+        error: true,
+        acceleration: false,
+        orientation: false,
+        position: true
+      };
+
+      // Function to add messages to the message list
+      function addMessage(data) {
+        const now = Date.now();
+
+        // Throttle frequent sensor data messages
+        if (data.type === 'acceleration') {
+          if (now - lastAccelerationMessageTime < messageThrottleTime) {
+            sensorUpdatesSkipped++;
+            return;
+          }
+          lastAccelerationMessageTime = now;
+          if (sensorUpdatesSkipped > 0) {
+            addMessage({
+              type: 'system',
+              message: `Skipped ${sensorUpdatesSkipped} acceleration updates`
+            });
+            sensorUpdatesSkipped = 0;
+          }
+        } else if (data.type === 'orientation') {
+          if (now - lastOrientationMessageTime < messageThrottleTime) {
+            return;
+          }
+          lastOrientationMessageTime = now;
+        } else if (data.type === 'position') {
+          if (now - lastPositionMessageTime < messageThrottleTime) {
+            return;
+          }
+          lastPositionMessageTime = now;
+        }
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message';
+        messageDiv.dataset.type = data.type;
+
+        // Apply visibility based on current filters
+        if (!messageFilters[data.type]) {
+          messageDiv.style.display = 'none';
+        }
+
+        const timestamp = data.timestamp || new Date().toISOString();
+        let content = '';
+        let messageClass = data.type;
+
+        if (data.type === 'acceleration') {
+          content = `Accel: x=${data.acceleration.x.toFixed(2)}, y=${data.acceleration.y.toFixed(2)}, z=${data.acceleration.z.toFixed(2)}`;
+        } else if (data.type === 'orientation') {
+          content = `Orient: α=${data.orientation.x.toFixed(2)}°, β=${data.orientation.y.toFixed(2)}°, γ=${data.orientation.z.toFixed(2)}°, abs=${data.orientation.absolute}`;
+        } else if (data.type === 'position') {
+          content = `Position: x=${data.position.x.toFixed(2)}, y=${data.position.y.toFixed(2)}, z=${data.position.z.toFixed(2)}`;
+        } else if (data.type === 'punch') {
+          messageClass += data.classification ? ` punch-${data.classification}` : '';
+          content = `Punch: ${data.classification || ''} (${data.acceleration ? data.acceleration.toFixed(2) : 'N/A'})`;
+        } else if (data.type === 'error' && data.message) {
+          content = `Error: ${data.message}`;
+        } else if (data.type === 'system' && data.message) {
+          content = data.message;
+        } else {
+          content = JSON.stringify(data, null, 2);
+        }
+
+        messageDiv.innerHTML = `
+          <div class="timestamp">${new Date(timestamp).toLocaleTimeString('en-US', { hour12: false })}</div>
+          <div class="message-content ${messageClass}">${content}</div>
+        `;
+
+        messageList.insertBefore(messageDiv, messageList.firstChild);
+
+        // Keep only last 100 messages
+        if (messageList.children.length > 100) {
+          messageList.removeChild(messageList.lastChild);
+        }
+      }
+
+      // *** Now define all other functions in the order they're called ***
+      // Define createLabel since it's used by other functions
+      function createLabel(text, position, color) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 64;
+        const context = canvas.getContext('2d');
+        context.fillStyle = color;
+        context.font = 'Bold 48px Arial';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillText(text, 32, 32);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({ map: texture });
+        const sprite = new THREE.Sprite(material);
+        sprite.scale.set(0.5, 0.5, 0.5);
+        sprite.position.copy(position);
+        return sprite;
+      }
+
+      // Define other helper functions first
+      function addDeviceCoordinateAxes(group) {
+        // Your existing code
+      }
+
+      function onWindowResize() {
+        // Your existing code
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+      }
+
+      function animatePosition() {
+        if (!isPositionVisualizationInitialized) return;
+        requestAnimationFrame(animatePosition);
+        if (positionScene && positionScene.userData.controls) {
+          positionScene.userData.controls.update();
+        }
+        if (positionRenderer && positionScene && positionCamera) {
+          positionRenderer.render(positionScene, positionCamera);
+        }
+      }
+
+      // Define createPhoneModel function before initThreeJs
+      function createPhoneModel() {
+        // Your existing code
+      }
+
+      // Define initialization functions
+      function initThreeJs() {
+        // Your existing code
+      }
+
+      function initPositionVisualization() {
+        // Your existing code
+      }
+
+      function updatePositionVisualization(position) {
+        // Your existing code
+      }
+
+      function resetVisualization() {
+        // Your existing code
+      }
+
+      // Define all processing functions
+      function processOrientationData(orientation) {
+        // Your existing code
+      }
+
+      function updatePhoneVisualization() {
+        // Your existing code
+      }
+
+      function processMessage(data) {
+        // Your existing code
+      }
+
+      // Define all request and update functions
+      function requestConfig() {
+        // Your existing code
+      }
+
+      function requestConfigViaWebSocket() {
+        // Your existing code
+      }
+
+      function updateFormWithConfig(punchConfig) {
+        // Your existing code
+      }
+
+      function sendConfigViaWebSocket(punchConfig) {
+        // Your existing code
+      }
+
+      function updatePunchThresholds() {
+        // Your existing code
+      }
+
+      function updateMessageVisibility() {
+        // Your existing code
+      }
+
+      function calibrateOrientation() {
+        // Your existing code
+      }
+
+      // Define the WebSocket connection function last since it uses all the other functions
+      function connect() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/debug`;
+
+        console.log('Connecting to WebSocket at:', wsUrl);
+
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          statusElement.textContent = 'Connected';
+          statusElement.classList.remove('disconnected');
+          statusElement.classList.add('connected');
+          addMessage({ type: 'system', message: 'Connected to server' });
+
+          // Attempt to initialize Three.js if not already initialized
+          setTimeout(() => {
+            if (!isThreeJsInitialized) {
+              try {
+                initThreeJs();
+                addMessage({ type: 'system', message: 'Three.js initialized' });
+              } catch (error) {
+                console.error("Error initializing Three.js:", error);
+                addMessage({ type: 'error', message: 'Failed to initialize 3D rendering: ' + error.message });
+              }
+            }
+
+            if (!isPositionVisualizationInitialized) {
+              try {
+                initPositionVisualization();
+                addMessage({ type: 'system', message: 'Position visualization initialized' });
+              } catch (error) {
+                console.error("Error initializing position visualization:", error);
+                addMessage({ type: 'error', message: 'Failed to initialize position visualization: ' + error.message });
+              }
+            }
+          }, 1000);
+
+          // Request current configuration from server
+          requestConfig();
+        };
+
+        ws.onclose = () => {
+          statusElement.textContent = 'Disconnected - Reconnecting in 5 seconds...';
+          statusElement.classList.remove('connected');
+          statusElement.classList.add('disconnected');
+          addMessage({ type: 'system', message: 'Disconnected from server' });
+          setTimeout(connect, 5000);
+        };
+
+        ws.onerror = (error) => {
+          console.error('WebSocket error:', error);
+          addMessage({ type: 'error', message: 'WebSocket error occurred' });
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            processMessage(data);
+            addMessage(data);
+          } catch (error) {
+            console.error('Error parsing message:', error);
+            addMessage({ type: 'error', message: 'Error parsing message: ' + error.message });
+          }
+        };
+      }
+
+      // *** Set up event listeners ***
+      document.getElementById('reset-visualization').addEventListener('click', resetVisualization);
+      document.getElementById('reset-position').addEventListener('click', () => {
+        // Your existing code
+      });
+      document.getElementById('calibrate-position').addEventListener('click', () => {
+        // Your existing code
+      });
+      // ... Other event listeners ...
+
+      // *** Finally, start the application ***
+      // Start connection
+      connect();
+    });
+  </script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #FAFAFA;
+      display: flex;
+      flex-direction: column;
+      height: 80vh;
+      color: #333;
+    }
+
+    .container {
+      display: flex;
+      flex: 1;
+      gap: 20px;
+    }
+
+    .visualization-container {
+      flex: 1;
+      background: white;
+      padding: 16px;
+      border-radius: 16px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+    }
+
+    h1,
+    h2,
+    h3 {
+      font-weight: 600;
+      text-align: center;
+      margin-bottom: 16px;
+    }
+
+    #phone-container {
+      width: 100%;
+      height: 300px;
+      position: relative;
+    }
+
+    #data-container {
+      flex: 1;
+      height: 700px;
+      background-color: white;
+      padding: 16px;
+      border-radius: 16px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      overflow-y: auto;
+    }
+
+    .status {
+      padding: 12px;
+      margin-bottom: 16px;
+      border-radius: 8px;
+      text-align: center;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    .connected {
+      background: #E6F4EA;
+      color: #256029;
+    }
+
+    .disconnected {
+      background: #FCE8E6;
+      color: #A52714;
+    }
+
+    .message {
+      padding: 10px;
+      border-bottom: 1px solid #EEE;
+      word-wrap: break-word;
+      font-size: 14px;
+      color: #555;
+    }
+
+    .timestamp {
+      color: #AAA;
+      font-size: 12px;
+      padding-bottom: 2px;
+    }
+
+    .sensor-data {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 24px;
+      width: 100%;
+      background: #F8F9FA;
+      padding: 12px;
+      border-radius: 12px;
+    }
+
+    .sensor-value {
+      text-align: center;
+      flex: 1;
+    }
+
+    .sensor-value h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 500;
+      color: #666;
+    }
+
+    .sensor-value p {
+      margin: 5px 0;
+      font-size: 20px;
+      font-weight: 600;
+      color: #222;
+    }
+
+    .config-panel {
+      margin-top: 20px;
+      padding: 16px;
+      background-color: #FFF;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      width: 100%;
+    }
+
+    .config-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .config-control {
+      flex: 1 1 calc(33.33% - 16px);
+      min-width: 150px;
+    }
+
+    .config-control label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .config-control input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #EEE;
+      border-radius: 4px;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      background-color: #007BFF;
+      color: #FFF;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 16px;
+      font-weight: 500;
+    }
+
+    button:hover {
+      background-color: #0069d9;
+    }
+
+    .punch-visualization {
+      margin-top: 24px;
+      padding: 16px;
+      background-color: #FFF;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      width: 100%;
+    }
+
+    .punch-meter {
+      margin-bottom: 16px;
+    }
+
+    .punch-scale {
+      display: flex;
+      justify-content: space-between;
+      position: relative;
+      height: 30px;
+      margin-top: 8px;
+    }
+
+    .punch-threshold {
+      position: absolute;
+      transform: translateX(-50%);
+      font-weight: 500;
+      font-size: 14px;
+      top: 0;
+    }
+
+    .punch-threshold.weak {
+      color: #28a745;
+    }
+
+    .punch-threshold.normal {
+      color: #fd7e14;
+    }
+
+    .punch-threshold.strong {
+      color: #dc3545;
+    }
+
+    .punch-bar-container {
+      height: 20px;
+      background-color: #EEE;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .punch-bar {
+      height: 100%;
+      background-color: #007BFF;
+      width: 0%;
+    }
+
+    .punch-bar.weak {
+      background-color: #28a745;
+    }
+
+    .punch-bar.normal {
+      background-color: #fd7e14;
+    }
+
+    .punch-bar.strong {
+      background-color: #dc3545;
+    }
+
+    .punch-info {
+      text-align: center;
+    }
+
+    .punch-info .weak {
+      color: #28a745;
+      font-weight: bold;
+    }
+
+    .punch-info .normal {
+      color: #fd7e14;
+      font-weight: bold;
+    }
+
+    .punch-info .strong {
+      color: #dc3545;
+      font-weight: bold;
+    }
+
+    .config-group {
+      border: 1px solid #eee;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 16px;
+    }
+
+    .config-title {
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #555;
+    }
+
+    .message-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .message-filters {
+      display: flex;
+      gap: 16px;
+    }
+
+    .message-filters label {
+      display: flex;
+      align-items: center;
+    }
+
+    .message-filters label input {
+      margin-right: 8px;
+    }
+
+    .message-content {
+      display: block;
+    }
+
+    /* Message type styling */
+    .message-content.punch {
+      font-weight: 500;
+    }
+
+    .message-content.punch-weak {
+      color: #28a745;
+      font-weight: bold;
+    }
+
+    .message-content.punch-normal {
+      color: #fd7e14;
+      font-weight: bold;
+    }
+
+    .message-content.punch-strong {
+      color: #dc3545;
+      font-weight: bold;
+    }
+
+    .message-content.system {
+      color: #6c757d;
+      font-style: italic;
+    }
+
+    .message-content.error {
+      color: #dc3545;
+      font-weight: bold;
+    }
+
+    .message-content.acceleration,
+    .message-content.orientation {
+      color: #6c757d;
+      font-family: monospace;
+      font-size: 0.9em;
+    }
+
+    /* Clear button styling */
+    #clear-messages {
+      background-color: #6c757d;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+
+    #clear-messages:hover {
+      background-color: #5a6268;
+    }
+
+    .calibrate-button {
+      margin-bottom: 16px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .calibrate-button:hover {
+      background-color: #45a049;
+    }
+
+    .position-visualization {
+      margin-top: 24px;
+      padding: 16px;
+      background-color: #FFF;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      width: 100%;
+    }
+
+    #position-container {
+      width: 100%;
+      height: 400px;
+      position: relative;
+      margin-top: 16px;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+      background: linear-gradient(to bottom, #1a1a2e, #16213e);
+    }
+
+    .position-data {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 10px;
+      width: 100%;
+      background: #F8F9FA;
+      padding: 12px;
+      border-radius: 12px;
+    }
+
+    .position-value {
+      text-align: center;
+      flex: 1;
+    }
+
+    .position-value h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 500;
+      color: #666;
+    }
+
+    .position-value p {
+      margin: 5px 0;
+      font-size: 20px;
+      font-weight: 600;
+      color: #222;
+    }
+
+    .reset-button {
+      background-color: #dc3545;
+      color: white;
+      margin-bottom: 16px;
+    }
+
+    .reset-button:hover {
+      background-color: #c82333;
+    }
+
+    .controls-container {
+      display: flex;
+      gap: 16px;
+    }
+
+    .controls-container button {
+      flex: 1;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Punch Classification Debug</h1>
+  <div id="connection-status" class="status disconnected">Disconnected</div>
+
+  <div class="container">
+    <div class="visualization-container">
+      <h2>Phone Orientation</h2>
+      <button id="calibrate-orientation" class="calibrate-button">Calibrate Orientation</button>
+      <div id="phone-container"></div>
+
+      <!-- Phone Position Visualization -->
+      <div class="position-visualization">
+        <h3>Phone Position Tracking</h3>
+        <div class="controls-container">
+          <button id="reset-position" class="reset-button">Reset Position</button>
+          <button id="calibrate-position" class="calibrate-button">Calibrate Position</button>
+          <button id="reset-visualization" class="reset-button">Reset Visualization</button>
+        </div>
+        <div id="position-container"></div>
+        <div class="position-data">
+          <div class="position-value">
+            <h3>Position X</h3>
+            <p id="position-x">0.00</p>
+          </div>
+          <div class="position-value">
+            <h3>Position Y</h3>
+            <p id="position-y">0.00</p>
+          </div>
+          <div class="position-value">
+            <h3>Position Z</h3>
+            <p id="position-z">0.00</p>
+          </div>
+        </div>
+        <div class="position-data">
+          <div class="position-value">
+            <h3>Velocity X</h3>
+            <p id="velocity-x">0.00</p>
+          </div>
+          <div class="position-value">
+            <h3>Velocity Y</h3>
+            <p id="velocity-y">0.00</p>
+          </div>
+          <div class="position-value">
+            <h3>Velocity Z</h3>
+            <p id="velocity-z">0.00</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Punch Configuration Panel -->
+      <div class="config-panel">
+        <h3>Punch Classification Settings</h3>
+
+        <div class="config-group">
+          <div class="config-title">Threshold Settings</div>
+          <div class="config-controls">
+            <div class="config-control">
+              <label for="weak-threshold">Weak Punch Threshold:</label>
+              <input type="number" id="weak-threshold" value="3" min="0" step="0.5">
+            </div>
+            <div class="config-control">
+              <label for="normal-threshold">Normal Punch Threshold:</label>
+              <input type="number" id="normal-threshold" value="6" min="0" step="0.5">
+            </div>
+            <div class="config-control">
+              <label for="strong-threshold">Strong Punch Threshold:</label>
+              <input type="number" id="strong-threshold" value="15" min="0" step="0.5">
+            </div>
+          </div>
+        </div>
+
+        <div class="config-group">
+          <div class="config-title">Detection Settings</div>
+          <div class="config-controls">
+            <div class="config-control">
+              <label for="punch-cooldown">Punch Cooldown (ms):</label>
+              <input type="number" id="punch-cooldown" value="100" min="0" step="10">
+            </div>
+            <div class="config-control">
+              <label for="punch-max-value">Max Punch Value:</label>
+              <input type="number" id="punch-max-value" value="40" min="1" step="1">
+            </div>
+            <div class="config-control">
+              <label for="min-punch-threshold">Minimum Detection Threshold:</label>
+              <input type="number" id="min-punch-threshold" value="2" min="0" step="0.1">
+            </div>
+          </div>
+        </div>
+
+        <div class="config-group">
+          <div class="config-title">Acceleration Settings</div>
+          <div class="config-controls">
+            <div class="config-control">
+              <label for="accel-weight-x">X-axis Weight:</label>
+              <input type="number" id="accel-weight-x" value="1.0" min="0" max="10" step="0.1">
+            </div>
+            <div class="config-control">
+              <label for="accel-weight-y">Y-axis Weight:</label>
+              <input type="number" id="accel-weight-y" value="1.0" min="0" max="10" step="0.1">
+            </div>
+            <div class="config-control">
+              <label for="accel-weight-z">Z-axis Weight:</label>
+              <input type="number" id="accel-weight-z" value="1.0" min="0" max="10" step="0.1">
+            </div>
+          </div>
+        </div>
+
+        <div class="config-group">
+          <div class="config-title">Direction Filter</div>
+          <div class="config-controls">
+            <div class="config-control">
+              <label for="direction-filter-enabled">Enable Direction Filter:</label>
+              <select id="direction-filter-enabled">
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </div>
+            <div class="config-control">
+              <label for="direction-tolerance">Direction Tolerance (°):</label>
+              <input type="number" id="direction-tolerance" value="45" min="0" max="180" step="5">
+            </div>
+            <div class="config-control">
+              <label for="preferred-direction">Preferred Direction:</label>
+              <select id="preferred-direction">
+                <option value="positive-x">+X (Right)</option>
+                <option value="negative-x">-X (Left)</option>
+                <option value="positive-y">+Y (Up)</option>
+                <option value="negative-y">-Y (Down)</option>
+                <option value="positive-z">+Z (Forward)</option>
+                <option value="negative-z">-Z (Backward)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <button id="apply-config">Apply Configuration</button>
+      </div>
+
+      <!-- Punch Classification Visualization -->
+      <div class="punch-visualization">
+        <h3>Punch Classification Visualization</h3>
+        <div class="punch-meter">
+          <div class="punch-bar-container">
+            <div class="punch-bar" id="current-punch-strength"></div>
+            <div class="punch-scale">
+              <div class="punch-threshold weak" id="weak-threshold-indicator">Weak</div>
+              <div class="punch-threshold normal" id="normal-threshold-indicator">Normal</div>
+              <div class="punch-threshold strong" id="strong-threshold-indicator">Strong</div>
+            </div>
+          </div>
+        </div>
+        <div class="punch-info">
+          <p>Last Punch: <span id="last-punch-value">None</span></p>
+          <p>Classification: <span id="last-punch-classification">None</span></p>
+        </div>
+      </div>
+
+      <div class="sensor-data">
+        <div class="sensor-value">
+          <h3>Acceleration X</h3>
+          <p id="accel-x">0.00</p>
+        </div>
+        <div class="sensor-value">
+          <h3>Acceleration Y</h3>
+          <p id="accel-y">0.00</p>
+        </div>
+        <div class="sensor-value">
+          <h3>Acceleration Z</h3>
+          <p id="accel-z">0.00</p>
+        </div>
+        <div class="sensor-value">
+          <h3>Orientation Absolute</h3>
+          <p id="orientation-absolute">false</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="data-container">
+      <div class="message-controls">
+        <div class="message-filters">
+          <label>
+            <input type="checkbox" id="filter-punch" checked> Punches
+          </label>
+          <label>
+            <input type="checkbox" id="filter-system" checked> System
+          </label>
+          <label>
+            <input type="checkbox" id="filter-error" checked> Errors
+          </label>
+          <label>
+            <input type="checkbox" id="filter-acceleration"> Acceleration
+          </label>
+          <label>
+            <input type="checkbox" id="filter-orientation"> Orientation
+          </label>
+          <label>
+            <input type="checkbox" id="filter-position" checked> Position
+          </label>
+        </div>
+        <button id="clear-messages">Clear Messages</button>
+      </div>
+      <div id="message-list"></div>
+    </div>
+  </div>
+
+  <script>
+    const statusElement = document.getElementById('connection-status');
+    const dataContainer = document.getElementById('data-container');
+    const messageList = document.getElementById('message-list');
+    const phoneContainer = document.getElementById('phone-container');
+    const positionContainer = document.getElementById('position-container');
+
+    // Sensor data display elements
+    const accelXElement = document.getElementById('accel-x');
+    const accelYElement = document.getElementById('accel-y');
+    const accelZElement = document.getElementById('accel-z');
+
+    // Position data display elements
+    const positionXElement = document.getElementById('position-x');
+    const positionYElement = document.getElementById('position-y');
+    const positionZElement = document.getElementById('position-z');
+    const velocityXElement = document.getElementById('velocity-x');
+    const velocityYElement = document.getElementById('velocity-y');
+    const velocityZElement = document.getElementById('velocity-z');
+
+    let ws;
+
+    // Last processed sensor data
+    let lastSensorData = {
+      acceleration: { x: 0, y: 0, z: 0 },
+      orientation: { x: 0, y: 0, z: 0, absolute: false, _lastUpdate: 0 },
+      position: { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, _lastUpdate: 0 }
+    };
+
+    // Punch visualization elements
+    const punchBarElement = document.getElementById('current-punch-strength');
+    const lastPunchValueElement = document.getElementById('last-punch-value');
+    const lastPunchClassificationElement = document.getElementById('last-punch-classification');
+
+    // Three.js variables
+    let scene, camera, renderer, phoneModel;
+    let positionScene, positionCamera, positionRenderer;
+    let phonePath, pathPoints = [];
+    let isThreeJsInitialized = false;
+    let isPositionVisualizationInitialized = false;
+
+    // Message throttling settings
+    const messageThrottleTime = 500; // ms between sensor data updates
+    let lastAccelerationMessageTime = 0;
+    let lastOrientationMessageTime = 0;
+    let lastPositionMessageTime = 0;
+    let sensorUpdatesSkipped = 0;
+
+    // Message filter state
+    const messageFilters = {
+      punch: true,
+      system: true,
+      error: true,
+      acceleration: false,
+      orientation: false,
+      position: true
+    };
+
+    // Function to add messages to the message list
+    function addMessage(data) {
+      const now = Date.now();
+
+      // Throttle frequent sensor data messages
+      if (data.type === 'acceleration') {
+        if (now - lastAccelerationMessageTime < messageThrottleTime) {
+          sensorUpdatesSkipped++;
+          return;
+        }
+        lastAccelerationMessageTime = now;
+        if (sensorUpdatesSkipped > 0) {
+          addMessage({
+            type: 'system',
+            message: `Skipped ${sensorUpdatesSkipped} acceleration updates`
+          });
+          sensorUpdatesSkipped = 0;
+        }
+      } else if (data.type === 'orientation') {
+        if (now - lastOrientationMessageTime < messageThrottleTime) {
+          return;
+        }
+        lastOrientationMessageTime = now;
+      } else if (data.type === 'position') {
+        if (now - lastPositionMessageTime < messageThrottleTime) {
+          return;
+        }
+        lastPositionMessageTime = now;
+      }
+
+      const messageDiv = document.createElement('div');
+      messageDiv.className = 'message';
+      messageDiv.dataset.type = data.type;
+
+      // Apply visibility based on current filters
+      if (!messageFilters[data.type]) {
+        messageDiv.style.display = 'none';
+      }
+
+      const timestamp = data.timestamp || new Date().toISOString();
+      let content = '';
+      let messageClass = data.type;
+
+      if (data.type === 'acceleration') {
+        content = `Accel: x=${data.acceleration.x.toFixed(2)}, y=${data.acceleration.y.toFixed(2)}, z=${data.acceleration.z.toFixed(2)}`;
+      } else if (data.type === 'orientation') {
+        content = `Orient: α=${data.orientation.x.toFixed(2)}°, β=${data.orientation.y.toFixed(2)}°, γ=${data.orientation.z.toFixed(2)}°, abs=${data.orientation.absolute}`;
+      } else if (data.type === 'position') {
+        content = `Position: x=${data.position.x.toFixed(2)}, y=${data.position.y.toFixed(2)}, z=${data.position.z.toFixed(2)}`;
+      } else if (data.type === 'punch') {
+        messageClass += data.classification ? ` punch-${data.classification}` : '';
+        content = `Punch: ${data.classification || ''} (${data.acceleration ? data.acceleration.toFixed(2) : 'N/A'})`;
+      } else if (data.type === 'error' && data.message) {
+        content = `Error: ${data.message}`;
+      } else if (data.type === 'system' && data.message) {
+        content = data.message;
+      } else {
+        content = JSON.stringify(data, null, 2);
+      }
+
+      messageDiv.innerHTML = `
+        <div class="timestamp">${new Date(timestamp).toLocaleTimeString('en-US', { hour12: false })}</div>
+        <div class="message-content ${messageClass}">${content}</div>
+      `;
+
+      messageList.insertBefore(messageDiv, messageList.firstChild);
+
+      // Keep only last 100 messages
+      if (messageList.children.length > 100) {
+        messageList.removeChild(messageList.lastChild);
+      }
+    }
+
+    // Initialize Three.js
+    function initThreeJs() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xffffff);
+
+      camera = new THREE.PerspectiveCamera(75, phoneContainer.clientWidth / phoneContainer.clientHeight, 0.1, 1000);
+      camera.position.z = 7;
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(phoneContainer.clientWidth, phoneContainer.clientHeight);
+      phoneContainer.appendChild(renderer.domElement);
+
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+      scene.add(ambientLight);
+
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      directionalLight.position.set(5, 5, 5);
+      scene.add(directionalLight);
+
+      createPhoneModel();
+      window.addEventListener('resize', onWindowResize);
+      animate();
+      isThreeJsInitialized = true;
+    }
+
+    // Create phone model
+    function createPhoneModel() {
+      const phoneGroup = new THREE.Group();
+      scene.add(phoneGroup);
+
+      // Phone body
+      const phoneGeometry = new THREE.BoxGeometry(2, 4, 0.2);
+      const phoneMaterial = new THREE.MeshPhongMaterial({
+        color: 0x333333,
+        shininess: 30
+      });
+      phoneModel = new THREE.Mesh(phoneGeometry, phoneMaterial);
+      phoneGroup.add(phoneModel);
+
+      // Phone screen
+      const screenGeometry = new THREE.BoxGeometry(1.8, 3.6, 0.01);
+      const screenMaterial = new THREE.MeshPhongMaterial({
+        color: 0x1a1a1a,
+        shininess: 100
+      });
+      const screen = new THREE.Mesh(screenGeometry, screenMaterial);
+      screen.position.z = 0.11;
+      phoneModel.add(screen);
+
+      // Store the phone group for rotation updates
+      phoneModel.userData.phoneGroup = phoneGroup;
+
+      // Add coordinate axes to visualize orientation
+      addDeviceCoordinateAxes(phoneGroup);
+    }
+
+    // Add coordinate axes to visualize device orientation
+    function addDeviceCoordinateAxes(group) {
+      const axisLength = 2.0;
+      const axisWidth = 0.05;
+      const axesGroup = new THREE.Group();
+      group.add(axesGroup);
+
+      // X-axis (red)
+      const xAxisGeometry = new THREE.CylinderGeometry(axisWidth, axisWidth, axisLength, 8);
+      const xAxisMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+      const xAxis = new THREE.Mesh(xAxisGeometry, xAxisMaterial);
+      xAxis.rotation.z = -Math.PI / 2;
+      xAxis.position.x = axisLength / 2;
+      axesGroup.add(xAxis);
+
+      const xTipGeometry = new THREE.ConeGeometry(axisWidth * 2, axisWidth * 5, 8);
+      const xTip = new THREE.Mesh(xTipGeometry, xAxisMaterial);
+      xTip.rotation.z = -Math.PI / 2;
+      xTip.position.x = axisLength;
+      axesGroup.add(xTip);
+
+      // Y-axis (green)
+      const yAxisGeometry = new THREE.CylinderGeometry(axisWidth, axisWidth, axisLength, 8);
+      const yAxisMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+      const yAxis = new THREE.Mesh(yAxisGeometry, yAxisMaterial);
+      yAxis.position.y = axisLength / 2;
+      axesGroup.add(yAxis);
+
+      const yTipGeometry = new THREE.ConeGeometry(axisWidth * 2, axisWidth * 5, 8);
+      const yTip = new THREE.Mesh(yTipGeometry, yAxisMaterial);
+      yTip.position.y = axisLength;
+      axesGroup.add(yTip);
+
+      // Z-axis (blue)
+      const zAxisGeometry = new THREE.CylinderGeometry(axisWidth, axisWidth, axisLength, 8);
+      const zAxisMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+      const zAxis = new THREE.Mesh(zAxisGeometry, zAxisMaterial);
+      zAxis.rotation.x = Math.PI / 2;
+      zAxis.position.z = axisLength / 2;
+      axesGroup.add(zAxis);
+
+      const zTipGeometry = new THREE.ConeGeometry(axisWidth * 2, axisWidth * 5, 8);
+      const zTip = new THREE.Mesh(zTipGeometry, zAxisMaterial);
+      zTip.rotation.x = Math.PI / 2;
+      zTip.position.z = axisLength;
+      axesGroup.add(zTip);
+
+      // Add labels
+      axesGroup.add(createLabel('X', new THREE.Vector3(axisLength + 0.3, 0, 0), '#ff0000'));
+      axesGroup.add(createLabel('Y', new THREE.Vector3(0, axisLength + 0.3, 0), '#00ff00'));
+      axesGroup.add(createLabel('Z', new THREE.Vector3(0, 0, axisLength + 0.3), '#0000ff'));
+    }
+
+    // Create text label for axes
+    function createLabel(text, position, color) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 64;
+      canvas.height = 64;
+      const context = canvas.getContext('2d');
+      context.fillStyle = color;
+      context.font = 'Bold 48px Arial';
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText(text, 32, 32);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      const material = new THREE.SpriteMaterial({ map: texture });
+      const sprite = new THREE.Sprite(material);
+      sprite.scale.set(0.5, 0.5, 0.5);
+      sprite.position.copy(position);
+      return sprite;
+    }
+
+    // Window resize handler
+    function onWindowResize() {
+      if (!isThreeJsInitialized) return;
+      camera.aspect = phoneContainer.clientWidth / phoneContainer.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(phoneContainer.clientWidth, phoneContainer.clientHeight);
+    }
+
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+
+    // Initialize Position Visualization
+    function initPositionVisualization() {
+      try {
+        positionScene = new THREE.Scene();
+        positionScene.background = new THREE.Color(0xf0f0f0);
+
+        positionCamera = new THREE.PerspectiveCamera(75, positionContainer.clientWidth / positionContainer.clientHeight, 0.1, 1000);
+        positionCamera.position.set(5, 5, 5);
+        positionCamera.lookAt(0, 0, 0);
+
+        positionRenderer = new THREE.WebGLRenderer({ antialias: true });
+        positionRenderer.setSize(positionContainer.clientWidth, positionContainer.clientHeight);
+        positionRenderer.shadowMap.enabled = true;
+        positionRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        positionContainer.appendChild(positionRenderer.domElement);
+
+        // Add ambient light
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        positionScene.add(ambientLight);
+
+        // Add directional light with shadows
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(5, 10, 5);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 1024;
+        directionalLight.shadow.mapSize.height = 1024;
+        directionalLight.shadow.camera.near = 0.5;
+        directionalLight.shadow.camera.far = 50;
+        directionalLight.shadow.camera.left = -10;
+        directionalLight.shadow.camera.right = 10;
+        directionalLight.shadow.camera.top = 10;
+        directionalLight.shadow.camera.bottom = -10;
+        positionScene.add(directionalLight);
+
+        // Add floor
+        const floorGeometry = new THREE.PlaneGeometry(20, 20);
+        const floorMaterial = new THREE.MeshStandardMaterial({
+          color: 0xcccccc,
+          roughness: 0.8,
+          metalness: 0.2
+        });
+        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.y = -0.5;
+        floor.receiveShadow = true;
+        positionScene.add(floor);
+
+        // Add grid helper
+        const gridHelper = new THREE.GridHelper(20, 20, 0x888888, 0x444444);
+        gridHelper.position.y = -0.49; // Just above the floor
+        positionScene.add(gridHelper);
+
+        // Add axes helper
+        const axesHelper = new THREE.AxesHelper(5);
+        positionScene.add(axesHelper);
+
+        // Add text labels for axes
+        positionScene.add(createLabel('X', new THREE.Vector3(5.5, 0, 0), '#ff0000'));
+        positionScene.add(createLabel('Y', new THREE.Vector3(0, 5.5, 0), '#00ff00'));
+        positionScene.add(createLabel('Z', new THREE.Vector3(0, 0, 5.5), '#0000ff'));
+
+        // Create a more realistic phone representation
+        const phoneGroup = new THREE.Group();
+
+        // Phone body
+        const phoneBodyGeometry = new THREE.BoxGeometry(0.08, 0.16, 0.01);
+        const phoneBodyMaterial = new THREE.MeshPhongMaterial({
+          color: 0x303030,
+          shininess: 50
+        });
+        const phoneBody = new THREE.Mesh(phoneBodyGeometry, phoneBodyMaterial);
+        phoneBody.castShadow = true;
+        phoneGroup.add(phoneBody);
+
+        // Phone screen
+        const phoneScreenGeometry = new THREE.BoxGeometry(0.075, 0.14, 0.002);
+        const phoneScreenMaterial = new THREE.MeshPhongMaterial({
+          color: 0x3366ff,
+          shininess: 90,
+          emissive: 0x222244
+        });
+        const phoneScreen = new THREE.Mesh(phoneScreenGeometry, phoneScreenMaterial);
+        phoneScreen.position.z = 0.006;
+        phoneGroup.add(phoneScreen);
+
+        // Phone camera
+        const phoneCameraGeometry = new THREE.CircleGeometry(0.004, 16);
+        const phoneCameraMaterial = new THREE.MeshPhongMaterial({
+          color: 0x000000,
+          shininess: 90
+        });
+        const phoneCamera = new THREE.Mesh(phoneCameraGeometry, phoneCameraMaterial);
+        phoneCamera.position.set(0, 0.06, 0.006);
+        phoneCamera.rotation.x = -Math.PI / 2;
+        phoneGroup.add(phoneCamera);
+
+        positionScene.add(phoneGroup);
+
+        // Store the phone in the scene's userData
+        positionScene.userData.phone = phoneGroup;
+
+        // Create a line with gradient effect to show the path of the phone
+        const pathMaterial = new THREE.LineBasicMaterial({
+          color: 0xff6600,
+          linewidth: 2,
+          transparent: true,
+          opacity: 0.7
+        });
+        const pathGeometry = new THREE.BufferGeometry();
+        phonePath = new THREE.Line(pathGeometry, pathMaterial);
+        positionScene.add(phonePath);
+
+        // Add a small sphere to mark the current position
+        const markerGeometry = new THREE.SphereGeometry(0.02, 16, 16);
+        const markerMaterial = new THREE.MeshPhongMaterial({
+          color: 0xff0000,
+          emissive: 0x440000
+        });
+        const positionMarker = new THREE.Mesh(markerGeometry, markerMaterial);
+        positionMarker.castShadow = true;
+        positionScene.add(positionMarker);
+        positionScene.userData.marker = positionMarker;
+
+        // Start the render loop
+        animatePosition();
+        isPositionVisualizationInitialized = true;
+
+        // Add controls for orbit camera
+        try {
+          const orbitControls = new OrbitControls(positionCamera, positionRenderer.domElement);
+          positionScene.userData.controls = orbitControls;
+        } catch (error) {
+          console.error("Failed to initialize OrbitControls:", error);
+          addMessage({ type: 'error', message: 'Failed to initialize 3D controls. Try resetting the visualization.' });
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+          if (positionContainer && positionCamera && positionRenderer) {
+            positionCamera.aspect = positionContainer.clientWidth / positionContainer.clientHeight;
+            positionCamera.updateProjectionMatrix();
+            positionRenderer.setSize(positionContainer.clientWidth, positionContainer.clientHeight);
+          }
+        });
+      } catch (error) {
+        console.error("Error initializing position visualization:", error);
+        addMessage({ type: 'error', message: 'Failed to initialize 3D visualization: ' + error.message });
+      }
+    }
+
+    // Animation loop for position visualization
+    function animatePosition() {
+      if (!isPositionVisualizationInitialized) return;
+
+      requestAnimationFrame(animatePosition);
+
+      // Update orbit controls if present
+      if (positionScene.userData.controls) {
+        positionScene.userData.controls.update();
+      }
+
+      positionRenderer.render(positionScene, positionCamera);
+    }
+
+    // Update the position visualization
+    function updatePositionVisualization(position) {
+      if (!isPositionVisualizationInitialized || !position) return;
+
+      try {
+        const phone = positionScene.userData.phone;
+        const marker = positionScene.userData.marker;
+        if (!phone) return;
+
+        // Update phone position
+        phone.position.set(position.x, position.y, position.z);
+
+        // Update marker position
+        if (marker) {
+          marker.position.set(position.x, position.y, position.z);
+        }
+
+        // Calculate orientation based on the path direction if we have at least 2 points
+        if (pathPoints.length >= 1) {
+          const lastPosition = pathPoints[pathPoints.length - 1];
+          const direction = new THREE.Vector3(
+            position.x - lastPosition.x,
+            position.y - lastPosition.y,
+            position.z - lastPosition.z
+          );
+
+          // Only update rotation if movement is significant
+          if (direction.length() > 0.01) {
+            const lookAtPoint = new THREE.Vector3(
+              phone.position.x + direction.x,
+              phone.position.y + direction.y,
+              phone.position.z + direction.z
+            );
+            phone.lookAt(lookAtPoint);
+            // Adjust rotation to match phone orientation
+            phone.rotation.x += Math.PI / 2;
+          }
+        }
+
+        // Add point to path (limit to last 1000 points to avoid performance issues)
+        pathPoints.push(new THREE.Vector3(position.x, position.y, position.z));
+        if (pathPoints.length > 1000) {
+          pathPoints.shift();
+        }
+
+        // Update path geometry
+        const pathGeometry = new THREE.BufferGeometry().setFromPoints(pathPoints);
+        phonePath.geometry.dispose();
+        phonePath.geometry = pathGeometry;
+
+        // Add fade effect to the trail
+        if (pathPoints.length > 2) {
+          const colors = new Float32Array(pathPoints.length * 3);
+          for (let i = 0; i < pathPoints.length; i++) {
+            const alpha = i / pathPoints.length;
+            const color = new THREE.Color(0xff6600);
+
+            // Fade from transparent to bright
+            color.setHSL(0.1, 1.0, 0.5 * alpha + 0.5);
+
+            colors[i * 3] = color.r;
+            colors[i * 3 + 1] = color.g;
+            colors[i * 3 + 2] = color.b;
+          }
+          pathGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+          phonePath.material = new THREE.LineBasicMaterial({
+            vertexColors: true,
+            linewidth: 2
+          });
+        }
+      } catch (error) {
+        console.error("Error updating position visualization:", error);
+        // Only log errors occasionally to avoid spamming
+        if (Math.random() < 0.1) {
+          addMessage({ type: 'error', message: 'Error updating 3D visualization' });
+        }
+      }
+    }
+
+    function connect() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/debug`;
+
+      console.log('Connecting to WebSocket at:', wsUrl);
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        statusElement.textContent = 'Connected';
+        statusElement.classList.remove('disconnected');
+        statusElement.classList.add('connected');
+        addMessage({ type: 'system', message: 'Connected to server' });
+
+        // Attempt to initialize Three.js if not already initialized
+        setTimeout(() => {
+          if (!isThreeJsInitialized) {
+            try {
+              initThreeJs();
+              addMessage({ type: 'system', message: 'Three.js initialized' });
+            } catch (error) {
+              console.error("Error initializing Three.js:", error);
+              addMessage({ type: 'error', message: 'Failed to initialize 3D rendering: ' + error.message });
+            }
+          }
+
+          if (!isPositionVisualizationInitialized) {
+            try {
+              initPositionVisualization();
+              addMessage({ type: 'system', message: 'Position visualization initialized' });
+            } catch (error) {
+              console.error("Error initializing position visualization:", error);
+              addMessage({ type: 'error', message: 'Failed to initialize position visualization: ' + error.message });
+            }
+          }
+        }, 1000);
+
+        // Request current configuration from server
+        requestConfig();
+      };
+
+      ws.onclose = () => {
+        statusElement.textContent = 'Disconnected - Reconnecting in 5 seconds...';
+        statusElement.classList.remove('connected');
+        statusElement.classList.add('disconnected');
+        addMessage({ type: 'system', message: 'Disconnected from server' });
+        setTimeout(connect, 5000);
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        addMessage({ type: 'error', message: 'WebSocket error occurred' });
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          processMessage(data);
+          addMessage(data);
+        } catch (error) {
+          console.error('Error parsing message:', error);
+          addMessage({ type: 'error', message: 'Error parsing message: ' + error.message });
+        }
+      };
+    }
+
+    function requestConfig() {
+      // Try to get config via REST API first
+      fetch('/api/config')
+        .then(response => response.json())
+        .then(data => {
+          if (data && data.punch) {
+            updateFormWithConfig(data.punch);
+            addMessage({ type: 'system', message: 'Loaded configuration from REST API' });
+          } else {
+            // Fallback to WebSocket
+            requestConfigViaWebSocket();
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching config via REST:', error);
+          // Fallback to WebSocket
+          requestConfigViaWebSocket();
+        });
+    }
+
+    function requestConfigViaWebSocket() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'getConfig' }));
+      }
+    }
+
+    function updateFormWithConfig(punchConfig) {
+      // Update all configuration form values
+      document.getElementById('weak-threshold').value = punchConfig.weakThreshold || 3;
+      document.getElementById('normal-threshold').value = punchConfig.normalThreshold || 6;
+      document.getElementById('strong-threshold').value = punchConfig.strongThreshold || 15;
+      document.getElementById('punch-cooldown').value = punchConfig.coolDown || 100;
+      document.getElementById('punch-max-value').value = punchConfig.maxValue || 40;
+      document.getElementById('min-punch-threshold').value = punchConfig.minThreshold || 2;
+      document.getElementById('accel-weight-x').value = punchConfig.accelWeights?.x || 1.0;
+      document.getElementById('accel-weight-y').value = punchConfig.accelWeights?.y || 1.0;
+      document.getElementById('accel-weight-z').value = punchConfig.accelWeights?.z || 1.0;
+      document.getElementById('direction-filter-enabled').value =
+        (punchConfig.directionFilter?.enabled !== undefined) ?
+          punchConfig.directionFilter.enabled.toString() : "true";
+      document.getElementById('direction-tolerance').value = punchConfig.directionFilter?.tolerance || 45;
+      document.getElementById('preferred-direction').value = punchConfig.directionFilter?.direction || "positive-x";
+
+      // Update the visual indicators
+      updatePunchThresholds();
+    }
+
+    function processMessage(data) {
+      // Check if the message is sensor data (acceleration, orientation, or position)
+      if (data.type === 'acceleration' && data.acceleration) {
+        lastSensorData.acceleration = {
+          x: data.acceleration.x,
+          y: data.acceleration.y,
+          z: data.acceleration.z
+        };
+
+        accelXElement.textContent = lastSensorData.acceleration.x.toFixed(2);
+        accelYElement.textContent = lastSensorData.acceleration.y.toFixed(2);
+        accelZElement.textContent = lastSensorData.acceleration.z.toFixed(2);
+      }
+      else if (data.type === 'orientation' && data.orientation) {
+        processOrientationData(data.orientation);
+        updatePhoneVisualization();
+      }
+      // Handle position data
+      else if (data.type === 'position' && data.position) {
+        lastSensorData.position = {
+          x: data.position.x,
+          y: data.position.y,
+          z: data.position.z,
+          vx: data.position.vx,
+          vy: data.position.vy,
+          vz: data.position.vz,
+          _lastUpdate: Date.now()
+        };
+
+        // Update position display
+        positionXElement.textContent = data.position.x.toFixed(2);
+        positionYElement.textContent = data.position.y.toFixed(2);
+        positionZElement.textContent = data.position.z.toFixed(2);
+        velocityXElement.textContent = data.position.vx.toFixed(2);
+        velocityYElement.textContent = data.position.vy.toFixed(2);
+        velocityZElement.textContent = data.position.vz.toFixed(2);
+
+        // Update 3D visualization
+        updatePositionVisualization(data.position);
+      }
+      // Handle punch data
+      else if (data.type === 'punch') {
+        lastPunchValueElement.textContent = data.acceleration ? data.acceleration.toFixed(2) : 'N/A';
+        lastPunchClassificationElement.textContent = data.classification || 'Unknown';
+        lastPunchClassificationElement.className = '';
+        lastPunchClassificationElement.classList.add(data.classification || 'unknown');
+
+        // Get max value from the input field
+        const maxValue = parseFloat(document.getElementById('punch-max-value').value);
+        const percentage = Math.min(((data.acceleration || 0) / maxValue) * 100, 100);
+        punchBarElement.style.width = `${percentage}%`;
+
+        punchBarElement.className = 'punch-bar';
+        if (data.classification) {
+          punchBarElement.classList.add(data.classification);
+        }
+
+        punchBarElement.style.transition = 'width 0.1s linear';
+        setTimeout(() => {
+          punchBarElement.style.transition = 'width 2s ease-in-out';
+          punchBarElement.style.width = '0%';
+        }, 100);
+      }
+      // Handle system message with config update
+      else if (data.type === 'system' && data.punchConfig) {
+        updateFormWithConfig(data.punchConfig);
+      }
+    }
+
+    // Process orientation data to handle edge cases
+    function processOrientationData(orientation) {
+      lastSensorData.orientation = {
+        x: orientation.x,
+        y: orientation.y,
+        z: orientation.z,
+        absolute: orientation.absolute,
+        _lastUpdate: Date.now()
+      };
+
+      // Update the absolute flag display
+      document.getElementById('orientation-absolute').textContent = orientation.absolute;
+    }
+
+    function updatePhoneVisualization() {
+      if (!isThreeJsInitialized || !phoneModel) return;
+
+      const phoneGroup = phoneModel.userData.phoneGroup;
+      if (!phoneGroup) return;
+
+      // Get the orientation values
+      const alpha = lastSensorData.orientation.x;
+      const beta = lastSensorData.orientation.y;
+      const gamma = lastSensorData.orientation.z;
+
+      // Convert to radians
+      const alphaRad = THREE.MathUtils.degToRad(alpha);
+      const betaRad = THREE.MathUtils.degToRad(beta);
+      const gammaRad = THREE.MathUtils.degToRad(gamma);
+
+      // Create quaternion from device orientation
+      const deviceQuaternion = new THREE.Quaternion()
+        .setFromEuler(new THREE.Euler(
+          -betaRad,
+          gammaRad,
+          -alphaRad,
+          'ZXY'
+        ));
+
+      // Reset rotation
+      phoneGroup.rotation.set(0, 0, 0);
+
+      // Apply calibration if needed
+      if (isCalibrated && !lastSensorData.orientation.absolute) {
+        // Apply inverse calibration quaternion to "zero" the rotation
+        // We need to use multiply instead of premultiply to maintain proper handedness for Z rotation
+        const calibratedQuaternion = deviceQuaternion.clone().multiply(inverseCalibrationQuaternion);
+        phoneGroup.quaternion.copy(calibratedQuaternion);
+      } else {
+        // Use raw device orientation
+        phoneGroup.quaternion.copy(deviceQuaternion);
+      }
+    }
+
+    // Initial connection
+    connect();
+
+    // Setup punch configuration controls
+    const applyConfigButton = document.getElementById('apply-config');
+    applyConfigButton.addEventListener('click', () => {
+      const punchConfig = {
+        weakThreshold: parseFloat(document.getElementById('weak-threshold').value),
+        normalThreshold: parseFloat(document.getElementById('normal-threshold').value),
+        strongThreshold: parseFloat(document.getElementById('strong-threshold').value),
+        coolDown: parseInt(document.getElementById('punch-cooldown').value),
+        maxValue: parseFloat(document.getElementById('punch-max-value').value),
+        minThreshold: parseFloat(document.getElementById('min-punch-threshold').value),
+        accelWeights: {
+          x: parseFloat(document.getElementById('accel-weight-x').value),
+          y: parseFloat(document.getElementById('accel-weight-y').value),
+          z: parseFloat(document.getElementById('accel-weight-z').value)
+        },
+        directionFilter: {
+          enabled: document.getElementById('direction-filter-enabled').value === "true",
+          tolerance: parseFloat(document.getElementById('direction-tolerance').value),
+          direction: document.getElementById('preferred-direction').value
+        }
+      };
+
+      updatePunchThresholds();
+
+      // Use the REST API endpoint first, fallback to WebSocket if it fails
+      fetch('/api/config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ punch: punchConfig })
+      })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            addMessage({ type: 'system', message: 'Punch configuration updated via REST API' });
+          } else {
+            // Fallback to WebSocket
+            sendConfigViaWebSocket(punchConfig);
+          }
+        })
+        .catch(error => {
+          console.error('Error updating config via REST:', error);
+          // Fallback to WebSocket
+          sendConfigViaWebSocket(punchConfig);
+        });
+    });
+
+    function sendConfigViaWebSocket(punchConfig) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'config',
+          punchConfig
+        }));
+        addMessage({ type: 'system', message: 'Punch configuration sent via WebSocket' });
+      } else {
+        addMessage({ type: 'error', message: 'WebSocket not connected. Cannot send configuration.' });
+      }
+    }
+
+    // Initialize punch threshold visualization
+    updatePunchThresholds();
+
+    // Add input event listeners to update visualizations in real-time
+    document.getElementById('weak-threshold').addEventListener('input', updatePunchThresholds);
+    document.getElementById('normal-threshold').addEventListener('input', updatePunchThresholds);
+    document.getElementById('strong-threshold').addEventListener('input', updatePunchThresholds);
+    document.getElementById('punch-max-value').addEventListener('input', updatePunchThresholds);
+
+    // Function to update the punch threshold visualization
+    function updatePunchThresholds() {
+      const weakThreshold = parseFloat(document.getElementById('weak-threshold').value);
+      const normalThreshold = parseFloat(document.getElementById('normal-threshold').value);
+      const strongThreshold = parseFloat(document.getElementById('strong-threshold').value);
+      const maxValue = parseFloat(document.getElementById('punch-max-value').value);
+
+      const weakIndicator = document.getElementById('weak-threshold-indicator');
+      const normalIndicator = document.getElementById('normal-threshold-indicator');
+      const strongIndicator = document.getElementById('strong-threshold-indicator');
+
+      weakIndicator.style.left = `${(weakThreshold / maxValue) * 100}%`;
+      normalIndicator.style.left = `${(normalThreshold / maxValue) * 100}%`;
+      strongIndicator.style.left = `${(strongThreshold / maxValue) * 100}%`;
+    }
+
+    // Set up message filter controls
+    document.getElementById('filter-punch').addEventListener('change', (e) => {
+      messageFilters.punch = e.target.checked;
+      updateMessageVisibility();
+    });
+    document.getElementById('filter-system').addEventListener('change', (e) => {
+      messageFilters.system = e.target.checked;
+      updateMessageVisibility();
+    });
+    document.getElementById('filter-error').addEventListener('change', (e) => {
+      messageFilters.error = e.target.checked;
+      updateMessageVisibility();
+    });
+    document.getElementById('filter-acceleration').addEventListener('change', (e) => {
+      messageFilters.acceleration = e.target.checked;
+      updateMessageVisibility();
+    });
+    document.getElementById('filter-orientation').addEventListener('change', (e) => {
+      messageFilters.orientation = e.target.checked;
+      updateMessageVisibility();
+    });
+    document.getElementById('filter-position').addEventListener('change', (e) => {
+      messageFilters.position = e.target.checked;
+      updateMessageVisibility();
+    });
+
+    document.getElementById('clear-messages').addEventListener('click', () => {
+      messageList.innerHTML = '';
+      addMessage({ type: 'system', message: 'Messages cleared' });
+    });
+
+    function updateMessageVisibility() {
+      const messages = messageList.querySelectorAll('.message');
+      messages.forEach(message => {
+        const msgType = message.dataset.type;
+        message.style.display = messageFilters[msgType] ? 'block' : 'none';
+      });
+    }
+
+    // Add calibration button handler
+    document.getElementById('calibrate-orientation').addEventListener('click', calibrateOrientation);
+
+    function calibrateOrientation() {
+      if (!lastSensorData.orientation) return;
+
+      // Get current orientation values
+      const alpha = lastSensorData.orientation.x;
+      const beta = lastSensorData.orientation.y;
+      const gamma = lastSensorData.orientation.z;
+
+      // Convert to radians
+      const alphaRad = THREE.MathUtils.degToRad(alpha);
+      const betaRad = THREE.MathUtils.degToRad(beta);
+      const gammaRad = THREE.MathUtils.degToRad(gamma);
+
+      // Create calibration quaternion from current orientation
+      calibrationQuaternion.setFromEuler(new THREE.Euler(
+        -betaRad,
+        gammaRad,
+        -alphaRad,
+        'ZXY'
+      ));
+
+      // Create inverse quaternion for calibration
+      inverseCalibrationQuaternion.copy(calibrationQuaternion).invert();
+
+      isCalibrated = true;
+
+      // After calibration, reset the phone's visual orientation
+      if (phoneModel && phoneModel.userData.phoneGroup) {
+        phoneModel.userData.phoneGroup.quaternion.identity();
+      }
+
+      addMessage({
+        type: 'system',
+        message: `Orientation calibrated using quaternions`
+      });
+    }
+
+    // Add reset position button handler
+    document.getElementById('reset-position').addEventListener('click', () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'resetPosition'
+        }));
+        addMessage({ type: 'system', message: 'Reset position requested' });
+
+        // Reset path visualization immediately in UI
+        pathPoints = [];
+        if (phonePath && phonePath.geometry) {
+          phonePath.geometry.dispose();
+          phonePath.geometry = new THREE.BufferGeometry().setFromPoints([]);
+        }
+      }
+    });
+
+    // Add calibrate position button handler
+    document.getElementById('calibrate-position').addEventListener('click', () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'calibratePosition',
+          positionConfig: {
+            dampingFactor: 0.95,
+            resetThreshold: 0.2,
+            integrationMethod: 'verlet',
+            gravityCompensation: true
+          }
+        }));
+        addMessage({ type: 'system', message: 'Position calibration requested' });
+
+        // Reset path visualization immediately in UI
+        pathPoints = [];
+        if (phonePath && phonePath.geometry) {
+          phonePath.geometry.dispose();
+          phonePath.geometry = new THREE.BufferGeometry().setFromPoints([]);
+        }
+      }
+    });
+
+    // Add reset visualization button handler
+    document.getElementById('reset-visualization').addEventListener('click', resetVisualization);
+
+    function resetVisualization() {
+      try {
+        // Clean up existing visualization
+        if (isPositionVisualizationInitialized && positionRenderer) {
+          positionContainer.removeChild(positionRenderer.domElement);
+          if (phonePath && phonePath.geometry) {
+            phonePath.geometry.dispose();
+          }
+          if (positionScene) {
+            // Dispose materials and geometries
+            positionScene.traverse(object => {
+              if (object.geometry) object.geometry.dispose();
+              if (object.material) {
+                if (Array.isArray(object.material)) {
+                  object.material.forEach(material => material.dispose());
+                } else {
+                  object.material.dispose();
+                }
+              }
+            });
+          }
+        }
+
+        pathPoints = [];
+        isPositionVisualizationInitialized = false;
+
+        // Reinitialize visualization
+        setTimeout(() => {
+          initPositionVisualization();
+          addMessage({ type: 'system', message: 'Position visualization reset' });
+        }, 500);
+      } catch (error) {
+        console.error("Error resetting visualization:", error);
+        addMessage({ type: 'error', message: 'Failed to reset visualization: ' + error.message });
+      }
+    }
+  </script>
+</body>
+
+</html>
