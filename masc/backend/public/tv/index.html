@@ -7,27 +7,6 @@
   <title>Everything He Is</title>
   <link rel="stylesheet" href="style.css">
   <script src="script.js" defer></script>
-  <script>
-    // Set up WebSocket connection
-    const ws = new WebSocket('ws://' + window.location.hostname + ':8080');
-    
-    // Listen for messages from the server
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'sync') {
-        // Handle sync events (image changes, transitions etc)
-        window.handleSyncEvent(data);
-      }
-    };
-
-    // Function to broadcast events to other clients
-    window.broadcastEvent = (eventData) => {
-      ws.send(JSON.stringify({
-        type: 'sync',
-        ...eventData
-      }));
-    };
-  </script>
   <style>
     body {
       margin: 0;
