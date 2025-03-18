@@ -35,6 +35,46 @@ let config = {
   },
 };
 
+// Add sync state variables
+let syncState = {
+  clientId: null,
+  lastSyncTime: 0,
+  syncInterval: 2000, // Sync every 2 seconds
+  forceSyncInterval: 10000, // Force full sync every 10 seconds
+  isSyncing: false,
+  isLeader: false,
+};
+
+// Add function to get seed from URL or generate a random one
+function getSeedFromURL() {
+  const urlParams = new URLSearchParams(window.location.search);
+  let seed = urlParams.get("seed");
+
+  // If no seed provided in URL, generate one and update URL
+  if (!seed) {
+    seed = Math.floor(Math.random() * 1000000).toString();
+    const newUrl = new URL(window.location);
+    newUrl.searchParams.set("seed", seed);
+    window.history.replaceState({}, "", newUrl);
+  }
+
+  console.log(`Using seed: ${seed} for image shuffling`);
+  return seed;
+}
+
+// Add seeded random number generator
+function seededRandom(seed) {
+  const a = 1664525;
+  const c = 1013904223;
+  const m = Math.pow(2, 32);
+  let z = seed;
+
+  return function () {
+    z = (a * z + c) % m;
+    return z / m;
+  };
+}
+
 function nextImage(dynamicTimeout = 350) {
   console.log("nextImage called, current index:", selectedIndex);
   let currentImage = document.querySelectorAll(".image-slide")[selectedIndex];
@@ -78,6 +118,11 @@ function nextImage(dynamicTimeout = 350) {
     selectedIndex = nextIndex;
     console.log(`Changing from index ${oldIndex} to ${selectedIndex}`);
 
+    // Update URL with the new index
+    const newUrl = new URL(window.location);
+    newUrl.searchParams.set("index", selectedIndex.toString());
+    window.history.replaceState({}, "", newUrl);
+
     let next = document.querySelectorAll(".image-slide")[selectedIndex];
     if (!next) {
       console.error("Next image element not found!");
@@ -107,9 +152,19 @@ function initWebSocket() {
   const wsDebugUrl = `wss://${window.location.host}/ws/debug`;
   wsConnection = new WebSocket(wsDebugUrl);
 
+  // Generate a unique client ID if we don't have one yet
+  if (!syncState.clientId) {
+    syncState.clientId = Date.now().toString(36) +
+      Math.random().toString(36).substring(2);
+    console.log(`Generated client ID: ${syncState.clientId}`);
+  }
+
   // Connection opened
   wsConnection.addEventListener("open", (event) => {
     console.log("Connected to debug WebSocket");
+
+    // Start state synchronization when websocket is connected
+    initStateSync();
   });
 
   // Listen for messages
@@ -152,6 +207,11 @@ function initWebSocket() {
         // Pass the complete data object to handlePunch for more flexibility
         handlePunch(data);
       }
+
+      // Handle sync messages
+      if (data.type === "sync") {
+        handleSyncMessage(data);
+      }
     } catch (error) {
       console.error("Error processing UI WebSocket message:", error);
     }
@@ -172,6 +232,8 @@ function initWebSocket() {
       // Re-attach all event listeners
       window.uiSignalsWs.addEventListener("open", (event) => {
         console.log("Reconnected to ui-signals WebSocket");
+        // Restart sync when reconnected
+        initStateSync();
       });
       window.uiSignalsWs.addEventListener("message", (event) => {
         console.log(
@@ -183,6 +245,9 @@ function initWebSocket() {
           if (data.type === "punch") {
             console.log("Punch event from ui-signals after reconnect:", data);
             handlePunch(data);
+          }
+          if (data.type === "sync") {
+            handleSyncMessage(data);
           }
         } catch (error) {
           console.error(
@@ -196,25 +261,123 @@ function initWebSocket() {
 }
 
 // Fetch images from the API endpoint
-function updatePreview() {
-  imageList.innerHTML = "";
-  images.forEach((imgSrc, index) => {
-    const imgElement = document.createElement("img");
-    imgElement.src = imgSrc;
-    imgElement.className = "preview-image";
-    imgElement.id = `image-${index}`;
-    imgElement.dataset.index = index; // Store index as data attribute
-    if (index === selectedIndex) {
-      imgElement.classList.add("selected");
+async function fetchImages() {
+  try {
+    console.log("Fetching images from API...");
+    const response = await fetch("/api/images");
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch images: ${response.status} ${response.statusText}`,
+      );
     }
-    imgElement.onclick = () => {
-      selectedIndex = index;
-      localStorage.setItem("selectedIndex", selectedIndex);
-      window.dispatchEvent(new Event("storage"));
-      updateSelectedImage(index);
+
+    const imageData = await response.json();
+    console.log("Raw image data received:", imageData.length, "images");
+
+    if (!imageData || !Array.isArray(imageData) || imageData.length === 0) {
+      console.error("No images received from API");
+      return;
+    }
+
+    images = imageData.map((img) => img.url);
+
+    console.log("Processed images:", images.length);
+    console.log("First few images:", images.slice(0, 3));
+
+    // Get seed from URL or create one
+    const seed = parseInt(getSeedFromURL(), 10);
+
+    // Use seeded random generator for consistent shuffling across devices
+    const random = seededRandom(seed);
+
+    // Fisher-Yates shuffle with seeded random
+    for (let i = images.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [images[i], images[j]] = [images[j], images[i]];
+    }
+
+    // Attempt to restore selected index from URL parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const indexParam = urlParams.get("index");
+    if (indexParam !== null && !isNaN(parseInt(indexParam))) {
+      const parsedIndex = parseInt(indexParam);
+      if (parsedIndex >= 0 && parsedIndex < images.length) {
+        selectedIndex = parsedIndex;
+        console.log(`Restored selectedIndex from URL: ${selectedIndex}`);
+      }
+    }
+
+    localStorage.setItem("shuffledImages", JSON.stringify(images));
+    localStorage.setItem("imageSeed", seed.toString());
+    console.log("Loading images into DOM...");
+    loadImages();
+    console.log("Images loaded successfully");
+  } catch (error) {
+    console.error("Error fetching images:", error);
+  }
+}
+
+// Function to load images into the DOM
+function loadImages() {
+  if (!imageContainer) {
+    console.error("Cannot load images - image container not found");
+    return;
+  }
+
+  imageContainer.innerHTML = ""; // Clear container before loading new images
+  console.log(`Loading ${images.length} images into the DOM`);
+
+  if (images.length === 0) {
+    console.error("No images to load");
+    return;
+  }
+
+  images.forEach((src, index) => {
+    let img = document.createElement("img");
+    img.src = src;
+    img.classList.add("image-slide");
+    img.alt = `Image ${index + 1}`;
+
+    // Set initial styles with faster transitions for better performance
+    img.style.transition = "transform 0.15s ease-out, opacity 0.3s ease-out";
+    img.style.transformOrigin = "center center";
+    img.dataset.currentZoom = "1"; // Initialize zoom value for all images
+
+    if (index === 0) {
+      // First image is visible
+      img.style.transform = "scale(1)";
+      img.style.opacity = "1";
+      img.style.display = "block";
+    } else {
+      // Other images are hidden
+      img.style.opacity = "0";
+      img.style.display = "none";
+      img.style.transform = "scale(1)"; // Initialize with normal scale
+    }
+
+    // Add a load event handler to ensure images are properly loaded
+    img.onload = function () {
+      console.log(`Image ${index + 1} loaded successfully`);
+      // Make first image visible once loaded
+      if (index === 0) {
+        img.style.opacity = "1";
+      }
     };
-    imageList.appendChild(imgElement);
+
+    // Add an error handler
+    img.onerror = function () {
+      console.error(`Failed to load image at index ${index}: ${src}`);
+      // Replace with a placeholder if the image fails to load
+      img.src =
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200' viewBox='0 0 300 200'%3E%3Crect width='300' height='200' fill='%23cccccc'/%3E%3Ctext x='150' y='100' font-family='Arial' font-size='16' text-anchor='middle' fill='%23999999'%3EImage not found%3C/text%3E%3C/svg%3E";
+    };
+
+    imageContainer.appendChild(img);
   });
+
+  console.log(
+    `${images.length} images loaded into DOM with index ${selectedIndex} visible`,
+  );
 }
 
 // Function to update which image is selected without rebuilding the entire list
@@ -232,6 +395,15 @@ function updateSelectedImage(newIndex) {
 
     // Store the selected index in localStorage
     localStorage.setItem("selectedIndex", selectedIndex);
+
+    // Update URL with current index for sharing/syncing
+    const newUrl = new URL(window.location);
+    newUrl.searchParams.set("index", selectedIndex.toString());
+    window.history.replaceState({}, "", newUrl);
+
+    // Broadcast state change to other clients
+    broadcastStateUpdate();
+
     window.dispatchEvent(new Event("storage"));
   }
 }
@@ -386,10 +558,9 @@ function tiltBasedZoom(betaRotation) {
     : parseFloat(betaRotation);
   if (isNaN(beta)) return;
 
-  // Map beta values (0-180) to zoom range (0.75-1.5)
-  // 90 degrees -> 1.0 (100% scale)
-  // 0 degrees -> 0.75 (75% scale)
-  // 180 degrees -> 1.5 (150% scale)
+  // neutral zoom is at beta 180 degrees
+  // zoom at 100 degrees is 2.0
+  // zoom at 0 degrees is 0.5
   let zoomFactor;
 
   if (beta <= 90) {
@@ -510,6 +681,9 @@ document.addEventListener("DOMContentLoaded", function () {
   // Start loading images
   fetchImages();
 
+  // Setup URL parameter change listener for syncing
+  setupURLChangeListener();
+
   // Refresh configuration periodically (every 5 minutes)
   setInterval(fetchConfiguration, 5 * 60 * 1000);
 
@@ -527,6 +701,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // Initialize the rotation button functionality
   initRotationButton();
+
+  // Initialize visual sync indicator
+  initSyncIndicator();
 });
 
 // Replace the stub function with a proper implementation
@@ -704,106 +881,35 @@ function testPunch(strength = 10) {
 // Make it globally accessible for console testing
 window.testPunch = testPunch;
 
-// Fetch images from the API endpoint
-async function fetchImages() {
-  try {
-    console.log("Fetching images from API...");
-    const response = await fetch("/api/images");
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch images: ${response.status} ${response.statusText}`,
-      );
-    }
+// Add function to handle URL parameter changes
+function setupURLChangeListener() {
+  // Listen for changes to the URL (like when someone pastes a new URL with different params)
+  window.addEventListener("popstate", function () {
+    const urlParams = new URLSearchParams(window.location.search);
+    const indexParam = urlParams.get("index");
 
-    const imageData = await response.json();
-    console.log("Raw image data received:", imageData.length, "images");
+    if (indexParam !== null && !isNaN(parseInt(indexParam))) {
+      const newIndex = parseInt(indexParam);
+      if (
+        newIndex >= 0 && newIndex < images.length && newIndex !== selectedIndex
+      ) {
+        console.log(`URL index changed to ${newIndex}, updating display`);
+        selectedIndex = newIndex;
+        updatePreview();
 
-    if (!imageData || !Array.isArray(imageData) || imageData.length === 0) {
-      console.error("No images received from API");
-      return;
-    }
-
-    images = imageData.map((img) => img.url);
-
-    console.log("Processed images:", images.length);
-    console.log("First few images:", images.slice(0, 3));
-
-    // Shuffle the images
-    for (let i = images.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [images[i], images[j]] = [images[j], images[i]];
-    }
-
-    localStorage.setItem("shuffledImages", JSON.stringify(images));
-    console.log("Loading images into DOM...");
-    loadImages();
-    console.log("Images loaded successfully");
-  } catch (error) {
-    console.error("Error fetching images:", error);
-  }
-}
-
-// Function to load images into the DOM
-function loadImages() {
-  if (!imageContainer) {
-    console.error("Cannot load images - image container not found");
-    return;
-  }
-
-  imageContainer.innerHTML = ""; // Clear container before loading new images
-  console.log(`Loading ${images.length} images into the DOM`);
-
-  if (images.length === 0) {
-    console.error("No images to load");
-    return;
-  }
-
-  images.forEach((src, index) => {
-    let img = document.createElement("img");
-    img.src = src;
-    img.classList.add("image-slide");
-    img.alt = `Image ${index + 1}`;
-
-    // Set initial styles with faster transitions for better performance
-    img.style.transition = "transform 0.15s ease-out, opacity 0.3s ease-out";
-    img.style.transformOrigin = "center center";
-    img.dataset.currentZoom = "1"; // Initialize zoom value for all images
-
-    if (index === 0) {
-      // First image is visible
-      img.style.transform = "scale(1)";
-      img.style.opacity = "1";
-      img.style.display = "block";
-    } else {
-      // Other images are hidden
-      img.style.opacity = "0";
-      img.style.display = "none";
-      img.style.transform = "scale(1)"; // Initialize with normal scale
-    }
-
-    // Add a load event handler to ensure images are properly loaded
-    img.onload = function () {
-      console.log(`Image ${index + 1} loaded successfully`);
-      // Make first image visible once loaded
-      if (index === 0) {
-        img.style.opacity = "1";
+        // Make the current image visible and hide others
+        document.querySelectorAll(".image-slide").forEach((img, idx) => {
+          if (idx === selectedIndex) {
+            img.style.opacity = "1";
+            img.style.display = "block";
+          } else {
+            img.style.opacity = "0";
+            img.style.display = "none";
+          }
+        });
       }
-    };
-
-    // Add an error handler
-    img.onerror = function () {
-      console.error(`Failed to load image at index ${index}: ${src}`);
-      // Replace with a placeholder if the image fails to load
-      img.src =
-        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200' viewBox='0 0 300 200'%3E%3Crect width='300' height='200' fill='%23cccccc'/%3E%3Ctext x='150' y='100' font-family='Arial' font-size='16' text-anchor='middle' fill='%23999999'%3EImage not found%3C/text%3E%3C/svg%3E";
-    };
-
-    imageContainer.appendChild(img);
+    }
   });
-
-  console.log(
-    `${images.length} images loaded into DOM with index ${selectedIndex} visible`,
-  );
 }
 
 // Initialize the rotation button functionality
@@ -891,4 +997,184 @@ function updateRotationPosition() {
     imageContainer.style.top = "0";
     imageContainer.style.left = "0";
   }
+}
+
+// Add function for state synchronization
+function initStateSync() {
+  // Clear any existing sync intervals
+  if (window.syncIntervalId) {
+    clearInterval(window.syncIntervalId);
+  }
+
+  // Set up periodic sync
+  window.syncIntervalId = setInterval(() => {
+    // Only send sync messages if we have images loaded
+    if (
+      images.length > 0 && window.uiSignalsWs &&
+      window.uiSignalsWs.readyState === WebSocket.OPEN
+    ) {
+      // Every forceSyncInterval, do a full state sync
+      const now = Date.now();
+      if (now - syncState.lastSyncTime > syncState.forceSyncInterval) {
+        sendFullStateSync();
+      } else {
+        // Otherwise just send a heartbeat with current state
+        broadcastStateUpdate();
+      }
+    }
+  }, syncState.syncInterval);
+
+  // Initialize with a full sync request
+  setTimeout(sendFullStateSync, 500);
+}
+
+// Function to send full state sync
+function sendFullStateSync() {
+  if (!window.uiSignalsWs || window.uiSignalsWs.readyState !== WebSocket.OPEN) {
+    return;
+  }
+
+  syncState.lastSyncTime = Date.now();
+
+  const syncMessage = {
+    type: "sync",
+    action: "fullSync",
+    clientId: syncState.clientId,
+    timestamp: Date.now(),
+    data: {
+      selectedIndex,
+      seed: getSeedFromURL(),
+      totalImages: images.length,
+    },
+  };
+
+  window.uiSignalsWs.send(JSON.stringify(syncMessage));
+  console.log("Sent full sync request:", syncMessage);
+}
+
+// Function to broadcast state updates
+function broadcastStateUpdate() {
+  if (!window.uiSignalsWs || window.uiSignalsWs.readyState !== WebSocket.OPEN) {
+    return;
+  }
+
+  const stateMessage = {
+    type: "sync",
+    action: "update",
+    clientId: syncState.clientId,
+    timestamp: Date.now(),
+    data: {
+      selectedIndex,
+      seed: getSeedFromURL(),
+    },
+  };
+
+  window.uiSignalsWs.send(JSON.stringify(stateMessage));
+  console.log("Broadcast state update:", stateMessage);
+}
+
+// Function to handle incoming sync messages
+function handleSyncMessage(message) {
+  if (message.clientId === syncState.clientId) {
+    // Ignore our own messages
+    return;
+  }
+
+  console.log("Received sync message:", message);
+
+  if (message.action === "fullSync" || message.action === "update") {
+    // Check if the message is newer than our last sync
+    if (message.timestamp > syncState.lastSyncTime) {
+      syncState.lastSyncTime = message.timestamp;
+
+      // Update our state to match the incoming message
+      if (
+        message.data.selectedIndex !== undefined &&
+        message.data.selectedIndex !== selectedIndex &&
+        message.data.selectedIndex >= 0 &&
+        message.data.selectedIndex < images.length
+      ) {
+        console.log(
+          `Syncing index from ${selectedIndex} to ${message.data.selectedIndex}`,
+        );
+
+        // Update the selected index without triggering another broadcast
+        selectedIndex = message.data.selectedIndex;
+
+        // Update the UI to reflect the new state
+        document.querySelectorAll(".image-slide").forEach((img, idx) => {
+          if (idx === selectedIndex) {
+            img.style.opacity = "1";
+            img.style.display = "block";
+          } else {
+            img.style.opacity = "0";
+            img.style.display = "none";
+          }
+        });
+
+        // Update URL without broadcasting (to avoid sync loops)
+        const newUrl = new URL(window.location);
+        newUrl.searchParams.set("index", selectedIndex.toString());
+        window.history.replaceState({}, "", newUrl);
+      }
+    }
+  }
+}
+
+// Add a visual sync indicator
+function initSyncIndicator() {
+  // Create sync indicator element
+  const syncIndicator = document.createElement("div");
+  syncIndicator.id = "sync-indicator";
+  syncIndicator.style.position = "fixed";
+  syncIndicator.style.bottom = "10px";
+  syncIndicator.style.left = "10px";
+  syncIndicator.style.width = "10px";
+  syncIndicator.style.height = "10px";
+  syncIndicator.style.borderRadius = "50%";
+  syncIndicator.style.backgroundColor = "#ccc";
+  syncIndicator.style.opacity = "0.5";
+  syncIndicator.style.transition = "all 0.3s ease";
+  document.body.appendChild(syncIndicator);
+
+  // Update indicator when sync occurs
+  const updateSyncIndicator = (status) => {
+    const indicator = document.getElementById("sync-indicator");
+    if (!indicator) return;
+
+    if (status === "syncing") {
+      indicator.style.backgroundColor = "yellow";
+      indicator.style.opacity = "0.8";
+
+      // Restore to normal after brief delay
+      setTimeout(() => {
+        indicator.style.backgroundColor = "#0f0";
+        indicator.style.opacity = "0.5";
+      }, 300);
+    } else if (status === "success") {
+      indicator.style.backgroundColor = "#0f0";
+      indicator.style.opacity = "0.5";
+    } else if (status === "error") {
+      indicator.style.backgroundColor = "red";
+      indicator.style.opacity = "0.8";
+    }
+  };
+
+  // Store the function globally
+  window.updateSyncIndicator = updateSyncIndicator;
+
+  // Update indicator status on sync events
+  const originalBroadcastStateUpdate = broadcastStateUpdate;
+  window.broadcastStateUpdate = function () {
+    updateSyncIndicator("syncing");
+    originalBroadcastStateUpdate();
+  };
+
+  // Override the sync handler to update the indicator
+  const originalHandleSyncMessage = handleSyncMessage;
+  window.handleSyncMessage = function (message) {
+    updateSyncIndicator("syncing");
+    originalHandleSyncMessage(message);
+    updateSyncIndicator("success");
+  };
 }

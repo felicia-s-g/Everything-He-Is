@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Punch Classification Debug</title>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script src="/js/three.min.js"></script>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -368,35 +368,8 @@
   <div class="container">
     <div class="visualization-container">
       <h2>Phone Orientation</h2>
-      <button id="calibrate-orientation" class="calibrate-button">Calibrate Orientation</button>
+      <button id="calibrate-visualization" class="calibrate-button">Calibrate Orientation</button>
       <div id="phone-container"></div>
-
-      <!-- Add this section near the phone container -->
-      <div id="calibration-info"
-        style="display:none; margin-top: 10px; padding: 8px; border-radius: 4px; background-color: #e6f7ff; border: 1px solid #91d5ff;">
-        <p><strong>Calibration Active</strong></p>
-        <p>Reference: <span id="calibration-reference">N/A</span></p>
-        <p>Time: <span id="calibration-time">N/A</span></p>
-      </div>
-
-      <!-- Add calibration guidance UI -->
-      <div id="calibration-guide"
-        style="display:none; margin-top: 16px; padding: 12px; border-radius: 8px; background-color: #fff3cd; border: 1px solid #ffeeba;">
-        <h3 style="text-align: center; margin-bottom: 12px;">Calibration Guide</h3>
-        <p style="text-align: center; font-weight: 500;">Position your device as shown below, then press "Confirm
-          Calibration"</p>
-        <div style="display: flex; justify-content: center; margin: 16px 0;">
-          <img id="calibration-image" src="/img/calibration-pose.png" alt="Standard device position"
-            style="max-width: 200px; height: auto; border: 1px solid #ddd; border-radius: 4px;">
-        </div>
-        <p id="calibration-instruction" style="text-align: center; margin-bottom: 16px;">
-          Hold device upright with screen facing you, top pointing up
-        </p>
-        <div style="display: flex; justify-content: space-between; gap: 10px;">
-          <button id="cancel-calibration" style="flex: 1; background-color: #6c757d;">Cancel</button>
-          <button id="confirm-calibration" style="flex: 1; background-color: #28a745;">Confirm Calibration</button>
-        </div>
-      </div>
 
       <!-- Punch Configuration Panel -->
       <div class="config-panel">
@@ -603,9 +576,6 @@
           <label>
             <input type="checkbox" id="filter-orientation"> Orientation
           </label>
-          <label>
-            <input type="checkbox" id="show-normalized" checked> Show Normalized Data
-          </label>
         </div>
         <button id="clear-messages">Clear Messages</button>
       </div>
@@ -662,13 +632,10 @@
     // Add this variable near the top with other state variables
     let lastPunchTime = 0;
 
-    // New variables for calibration info
-    const calibrationInfoEl = document.getElementById('calibration-info');
-    const calibrationReferenceEl = document.getElementById('calibration-reference');
-    const calibrationTimeEl = document.getElementById('calibration-time');
-
-    // Add a flag to control whether to show normalized or raw data
-    let showNormalizedData = true;
+    // Add these variables at the top near other state variables
+    let calibrationQuaternion = new THREE.Quaternion();
+    let inverseCalibrationQuaternion = new THREE.Quaternion();
+    let isCalibrated = false;
 
     // Initialize Three.js
     function initThreeJs() {
@@ -985,40 +952,6 @@
       else if (data.type === 'system' && data.punchConfig) {
         updateFormWithConfig(data.punchConfig);
       }
-
-      // Check for calibration status update
-      if (data.type === 'system' && data.calibration) {
-        serverCalibrationActive = data.calibration.isCalibrated;
-
-        // Update UI to reflect calibration status
-        const calibrateButton = document.getElementById('calibrate-orientation');
-        calibrateButton.textContent = serverCalibrationActive ?
-          'Reset Calibration' : 'Calibrate Orientation';
-
-        // Show/hide and update calibration info panel
-        calibrationInfoEl.style.display = serverCalibrationActive ? 'block' : 'none';
-
-        if (serverCalibrationActive && data.calibration.referenceOrientation) {
-          const ref = data.calibration.referenceOrientation;
-          calibrationReferenceEl.textContent =
-            `α=${ref.x.toFixed(1)}°, β=${ref.y.toFixed(1)}°, γ=${ref.z.toFixed(1)}°`;
-
-          calibrationTimeEl.textContent = new Date(data.calibration.timestamp)
-            .toLocaleTimeString('en-US', { hour12: false });
-        }
-      }
-
-      // Highlight normalized orientation data in the visualization
-      if (data.type === 'orientation' && data.orientation && data.orientation.normalized) {
-        // Add visual indication that this data is calibrated
-        // For example, we could highlight the data display or add a marker
-        document.getElementById('orientation-absolute').style.fontWeight = 'bold';
-        document.getElementById('orientation-absolute').style.color =
-          data.orientation.absolute ? '#999' : '#4CAF50';
-      } else if (data.type === 'orientation') {
-        document.getElementById('orientation-absolute').style.fontWeight = 'normal';
-        document.getElementById('orientation-absolute').style.color = '#000';
-      }
     }
 
     // Process orientation data to handle edge cases
@@ -1041,25 +974,17 @@
       const phoneGroup = phoneModel.userData.phoneGroup;
       if (!phoneGroup) return;
 
-      // Reset rotation before applying new orientation
-      phoneGroup.rotation.set(0, 0, 0);
-      phoneGroup.quaternion.identity();
-
       // Get the orientation values
-      const alpha = lastSensorData.orientation.x; // alpha is rotation around z-axis (compass)
-      const beta = lastSensorData.orientation.y;  // beta is rotation around x-axis (tilt front/back)
-      const gamma = lastSensorData.orientation.z; // gamma is rotation around y-axis (tilt left/right)
+      const alpha = lastSensorData.orientation.x;
+      const beta = lastSensorData.orientation.y;
+      const gamma = lastSensorData.orientation.z;
 
       // Convert to radians
       const alphaRad = THREE.MathUtils.degToRad(alpha);
       const betaRad = THREE.MathUtils.degToRad(beta);
       const gammaRad = THREE.MathUtils.degToRad(gamma);
 
-      // SIMPLIFIED APPROACH: Use a single combined rotation with proper order
-
       // 1. Create Euler angles with ZXY order to match device orientation spec
-      // Note: THREE.js Euler angle order is REVERSED from the application order
-      // So ZXY order means applying Y, then X, then Z
       const deviceRotation = new THREE.Euler(betaRad, gammaRad, alphaRad, 'ZXY');
 
       // 2. Create quaternion from the Euler rotation
@@ -1072,27 +997,60 @@
         new THREE.Euler(Math.PI / 2, 0, 0)
       );
 
-      // 4. Apply the base orientation first, then device orientation
-      phoneGroup.quaternion.copy(baseOrientation);
-      phoneGroup.quaternion.multiply(deviceQuaternion);
+      // Reset quaternion first
+      phoneGroup.quaternion.identity();
 
-      // Visual indicator for calibrated data
-      if (lastSensorData.orientation.normalized) {
-        if (phoneModel.material) {
-          phoneModel.material.emissive = new THREE.Color(0x00ff00);
-          phoneModel.material.emissiveIntensity = 0.2;
-        }
-        document.getElementById('orientation-absolute').innerHTML =
-          lastSensorData.orientation.absolute ? 'true' :
-            '<span style="color:#4CAF50;font-weight:bold">Calibrated</span>';
-      } else {
-        if (phoneModel.material) {
-          phoneModel.material.emissive = new THREE.Color(0x000000);
-          phoneModel.material.emissiveIntensity = 0;
-        }
-        document.getElementById('orientation-absolute').textContent =
-          lastSensorData.orientation.absolute ? 'true' : 'false';
+      // 4. Apply the base orientation first
+      phoneGroup.quaternion.copy(baseOrientation);
+
+      // 5. If calibrated, apply calibration offset
+      if (isCalibrated) {
+        // Apply the inverse calibration quaternion (the offset)
+        phoneGroup.quaternion.multiply(inverseCalibrationQuaternion);
       }
+
+      // 6. Then apply device orientation
+      phoneGroup.quaternion.multiply(deviceQuaternion);
+    }
+
+    // Add this function to calibrate the orientation
+    function calibratePhoneVisualization() {
+      if (!isThreeJsInitialized || !phoneModel) return;
+
+      const phoneGroup = phoneModel.userData.phoneGroup;
+      if (!phoneGroup) return;
+
+      // Get the current orientation values
+      const alpha = lastSensorData.orientation.x;
+      const beta = lastSensorData.orientation.y;
+      const gamma = lastSensorData.orientation.z;
+
+      // Convert to radians
+      const alphaRad = THREE.MathUtils.degToRad(alpha);
+      const betaRad = THREE.MathUtils.degToRad(beta);
+      const gammaRad = THREE.MathUtils.degToRad(gamma);
+
+      // Create the device quaternion from current orientation
+      const deviceQuaternion = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(betaRad, gammaRad, alphaRad, 'ZXY')
+      );
+
+      // Store the current device quaternion as our calibration quaternion
+      calibrationQuaternion.copy(deviceQuaternion);
+
+      // Create the inverse quaternion to use as an offset
+      inverseCalibrationQuaternion.copy(calibrationQuaternion).invert();
+
+      // Set calibration flag
+      isCalibrated = true;
+
+      // Update the visualization immediately
+      updatePhoneVisualization();
+
+      addMessage({
+        type: 'system',
+        message: `Orientation calibrated at α=${alpha.toFixed(1)}°, β=${beta.toFixed(1)}°, γ=${gamma.toFixed(1)}°`
+      });
     }
 
     function addMessage(data) {
@@ -1294,113 +1252,6 @@
       });
     }
 
-    // Replace the calibrateOrientation function with the new implementation
-    let calibrationMode = false;
-
-    function startCalibration() {
-      // Show the calibration guide overlay
-      document.getElementById('calibration-guide').style.display = 'block';
-
-      // Set the phone model to the reference pose
-      if (phoneModel && phoneModel.userData.phoneGroup) {
-        const phoneGroup = phoneModel.userData.phoneGroup;
-
-        // Reset to standard orientation - this shows the target pose
-        phoneGroup.rotation.set(0, 0, 0);
-        phoneGroup.quaternion.identity();
-
-        // Apply standard position correction (screen facing user, top up)
-        const standardPose = new THREE.Quaternion().setFromEuler(
-          new THREE.Euler(Math.PI / 2, 0, 0)
-        );
-        phoneGroup.quaternion.copy(standardPose);
-
-        // Highlight the model to indicate calibration mode
-        if (phoneModel.material) {
-          phoneModel.userData.originalColor = phoneModel.material.color.clone();
-          phoneModel.material.color.set(0x4CAF50); // Green highlight
-        }
-      }
-
-      calibrationMode = true;
-      addMessage({ type: 'system', message: 'Position your device according to the guide image, then confirm calibration' });
-    }
-
-    function cancelCalibration() {
-      // Hide the calibration guide
-      document.getElementById('calibration-guide').style.display = 'none';
-
-      // Reset phone model appearance
-      if (phoneModel && phoneModel.material && phoneModel.userData.originalColor) {
-        phoneModel.material.color.copy(phoneModel.userData.originalColor);
-      }
-
-      calibrationMode = false;
-      addMessage({ type: 'system', message: 'Calibration cancelled' });
-    }
-
-    function confirmCalibration() {
-      if (!lastSensorData.orientation) {
-        addMessage({
-          type: 'error',
-          message: 'Cannot calibrate: No orientation data available. Move your device first.'
-        });
-        return;
-      }
-
-      // Hide the calibration guide
-      document.getElementById('calibration-guide').style.display = 'none';
-
-      // Reset phone model appearance
-      if (phoneModel && phoneModel.material && phoneModel.userData.originalColor) {
-        phoneModel.material.color.copy(phoneModel.userData.originalColor);
-      }
-
-      // Send calibration request with current orientation data
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'calibrateOrientation',
-          orientation: {
-            x: lastSensorData.orientation.x,
-            y: lastSensorData.orientation.y,
-            z: lastSensorData.orientation.z,
-            absolute: lastSensorData.orientation.absolute
-          }
-        }));
-
-        addMessage({
-          type: 'system',
-          message: `Calibration with reference orientation: α=${lastSensorData.orientation.x.toFixed(1)}°, β=${lastSensorData.orientation.y.toFixed(1)}°, γ=${lastSensorData.orientation.z.toFixed(1)}°`
-        });
-      }
-
-      calibrationMode = false;
-    }
-
-    function resetCalibration() {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'resetCalibration'
-        }));
-        addMessage({ type: 'system', message: 'Requesting calibration reset...' });
-      }
-    }
-
-    function calibrateOrientation() {
-      if (serverCalibrationActive) {
-        // If already calibrated, send reset request
-        resetCalibration();
-      } else {
-        // Start the new guided calibration process
-        startCalibration();
-      }
-    }
-
-    // Setup the calibration button and new confirm/cancel buttons
-    document.getElementById('calibrate-orientation').addEventListener('click', calibrateOrientation);
-    document.getElementById('confirm-calibration').addEventListener('click', confirmCalibration);
-    document.getElementById('cancel-calibration').addEventListener('click', cancelCalibration);
-
     // Add this JavaScript function to update the preview
     function updatePhotoScrollPreview() {
       const baseMultiplier = parseFloat(document.getElementById('scroll-base-multiplier').value);
@@ -1436,14 +1287,8 @@
     // Call this initially to set up the preview
     updatePhotoScrollPreview();
 
-    // Add event listener
-    document.getElementById('show-normalized').addEventListener('change', (e) => {
-      showNormalizedData = e.target.checked;
-      addMessage({
-        type: 'system',
-        message: `Now showing ${showNormalizedData ? 'normalized' : 'raw'} orientation data in visualization`
-      });
-    });
+    // Add event listener for the calibrate button
+    document.getElementById('calibrate-visualization').addEventListener('click', calibratePhoneVisualization);
   </script>
 </body>
 

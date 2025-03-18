@@ -7,10 +7,6 @@ const cors = require("cors");
 const {
   extractSensorData,
   getAccelerationIndex,
-  calibrateOrientation,
-  getNormalizedOrientation,
-  isOrientationCalibrated,
-  resetCalibration,
 } = require("./utils");
 const fs = require("fs");
 const { classifiedPunchDetected } = require("./signals");
@@ -67,6 +63,11 @@ app.get("/tv/fullscreen", (req, res) => {
 // Route to serve TV preview view
 app.get("/tv/preview", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "tv", "preview", "index.html"));
+});
+
+// Route to serve debug interface in offline mode
+app.get("/offline", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "tv", "debug.html"));
 });
 
 // Redirect root to phone interface by default
@@ -147,6 +148,27 @@ function broadcastToAllClients(channel, message) {
   sendToClients(httpWebsocketsServer, channel, message);
 }
 
+// New function to forward messages to all clients except the sender
+function forwardToOtherClients(sourceServer, message, senderId, channel) {
+  if (sourceServer.clients && sourceServer.clients.size > 0) {
+    sourceServer.clients.forEach((client) => {
+      // Only forward to clients on the specified channel that aren't the sender
+      if (
+        client.path === channel && client.readyState === WebSocket.OPEN &&
+        client.clientId !== senderId
+      ) {
+        client.send(JSON.stringify(message));
+      }
+    });
+  }
+}
+
+// Helper function to forward messages to all clients except the sender on both servers
+function forwardToAllOtherClients(message, senderId, channel) {
+  forwardToOtherClients(websocketsServer, message, senderId, channel);
+  forwardToOtherClients(httpWebsocketsServer, message, senderId, channel);
+}
+
 function classifiedPunchDetector(server) {
   // Use the punch detector from signals.js which now uses the config singleton
   const signal = classifiedPunchDetected();
@@ -188,17 +210,6 @@ function mirrorWebSocketConnections(ws, req, sourceServer, targetServer) {
 
         if (!sensorData) {
           return;
-        }
-
-        // Apply normalization to orientation data if needed
-        if (
-          sensorData.type === "orientation" && isOrientationCalibrated() &&
-          !sensorData.orientation.absolute
-        ) {
-          // Get normalized orientation data
-          sensorData.orientation = getNormalizedOrientation(
-            sensorData.orientation,
-          );
         }
 
         // Send data immediately without throttling
@@ -248,41 +259,20 @@ function mirrorWebSocketConnections(ws, req, sourceServer, targetServer) {
             message: "Current punch configuration",
             punchConfig: config.punch,
           }));
-        } // Handle calibration request
-        else if (data.type === "calibrateOrientation" && data.orientation) {
-          const success = calibrateOrientation(data.orientation);
-
+        } // Simple position reset handler
+        else if (data.type === "resetPosition") {
           // Send confirmation back to all debug clients
           broadcastToAllClients("/ws/debug", {
             type: "system",
-            message: success
-              ? "Orientation calibrated successfully"
-              : "Orientation calibration failed",
-            calibration: {
-              isCalibrated: isOrientationCalibrated(),
-              timestamp: Date.now(),
-              // Include the original calibration orientation for reference
-              referenceOrientation: {
-                x: data.orientation.x,
-                y: data.orientation.y,
-                z: data.orientation.z,
-              },
-            },
+            message: "Position reset requested",
           });
-        } // Handle reset calibration request
-        else if (data.type === "resetOrientation") {
-          const success = resetCalibration();
-
+        } // Simple position calibration handler
+        else if (data.type === "calibratePosition") {
           // Send confirmation back to all debug clients
           broadcastToAllClients("/ws/debug", {
             type: "system",
-            message: success
-              ? "Orientation calibration reset"
-              : "Orientation calibration reset failed",
-            calibration: {
-              isCalibrated: isOrientationCalibrated(),
-              timestamp: Date.now(),
-            },
+            message:
+              "Position calibration requested - this feature has been temporarily disabled",
           });
         }
       } catch (error) {
@@ -291,7 +281,44 @@ function mirrorWebSocketConnections(ws, req, sourceServer, targetServer) {
     });
   } // UI signals client
   else if (req.url === "/ws/ui-signals") {
-    // Nothing specific for UI signals clients, they just receive data
+    // Store client ID once received for sync messages
+    ws.on("message", (message) => {
+      try {
+        const data = JSON.parse(message.toString());
+
+        // Handle sync messages and forward them to other clients
+        if (data.type === "sync") {
+          console.log(
+            `Received sync message from client ${data.clientId}:`,
+            data.action,
+          );
+
+          // Store client ID if available
+          if (data.clientId) {
+            ws.clientId = data.clientId;
+          }
+
+          // Forward the sync message to all other clients
+          forwardToAllOtherClients(data, data.clientId, "/ws/ui-signals");
+
+          // Also log some stats about connected clients
+          let clientCount = 0;
+          sourceServer.clients.forEach((client) => {
+            if (
+              client.path === "/ws/ui-signals" &&
+              client.readyState === WebSocket.OPEN
+            ) {
+              clientCount++;
+            }
+          });
+          console.log(
+            `Currently ${clientCount} clients connected to UI signals`,
+          );
+        }
+      } catch (error) {
+        console.error("Error handling UI signals message:", error);
+      }
+    });
   }
 }
 
