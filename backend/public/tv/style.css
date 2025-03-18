@@ -1,0 +1,86 @@
+:root {
+  --ui-rotation: 0deg;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: black;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#image-container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  perspective: 1500px;
+  transform: rotate(var(--ui-rotation));
+  transition: transform 0.5s ease, width 0.5s ease, height 0.5s ease, top 0.5s ease, left 0.5s ease;
+  transform-origin: center center;
+}
+
+.image-slide {
+  width: 100vw;
+  height: 100vh;
+  object-fit: contain;
+  position: absolute;
+  transition: transform 0.1s ease-out, opacity 0.5s ease-in-out;
+  transform-origin: center;
+  opacity: 1;
+}
+
+.image-slide.flying-away {
+  transform: translateX(100vw) rotateY(40deg) scale(1.1);
+  opacity: 0;
+}
+
+#rotate-button {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.3);
+  border: none;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: background-color 0.3s ease, opacity 0.3s ease;
+  opacity: 0; /* Hidden by default */
+}
+
+#rotate-button:hover {
+  background-color: rgba(255, 255, 255, 0.5);
+}
+
+/* Show button when visible class is added */
+#rotate-button.visible {
+  opacity: 1;
+}
+
+/* Ensure rotate button is visible in all orientations */
+@media (orientation: portrait) {
+  #rotate-button {
+    bottom: 20px;
+    right: 20px;
+  }
+}
+
+@media (orientation: landscape) {
+  #rotate-button {
+    bottom: 20px;
+    right: 20px;
+  }
+}
