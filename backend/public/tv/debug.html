@@ -368,6 +368,16 @@
   <div class="container">
     <div class="visualization-container">
       <h2>Phone Orientation</h2>
+
+      <!-- Add source ID dropdown -->
+      <div style="width: 100%; margin-bottom: 16px;">
+        <label for="source-id-selector" style="display: block; margin-bottom: 8px;">Source ID:</label>
+        <select id="source-id-selector" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+          <option value="all">All Sources</option>
+          <!-- Source IDs will be populated dynamically -->
+        </select>
+      </div>
+
       <button id="calibrate-visualization" class="calibrate-button">Calibrate Orientation</button>
       <div id="phone-container"></div>
 
@@ -595,6 +605,11 @@
     const accelZElement = document.getElementById('accel-z');
 
     let ws;
+
+    // Track source IDs
+    const sourceIds = new Set();
+    let currentSourceId = 'all';
+    const sourceIdSelector = document.getElementById('source-id-selector');
 
     // Last processed sensor data
     let lastSensorData = {
@@ -898,6 +913,22 @@
     }
 
     function processMessage(data) {
+      // Track source ID if present
+      if (data.sourceId && data.sourceId !== '') {
+        if (!sourceIds.has(data.sourceId)) {
+          sourceIds.add(data.sourceId);
+          updateSourceIdDropdown();
+        }
+      }
+
+      // Filter messages by source ID if not set to "all"
+      if (currentSourceId !== 'all' &&
+        (currentSourceId === 'unclassified'
+          ? (data.sourceId && data.sourceId !== '')  // If unclassified selected, skip if has sourceId
+          : data.sourceId !== currentSourceId)) {    // Otherwise, skip if doesn't match current
+        return; // Skip processing this message
+      }
+
       // Check if the message is sensor data (acceleration or orientation)
       if (data.type === 'acceleration' && data.acceleration) {
         lastSensorData.acceleration = {
@@ -1077,28 +1108,49 @@
       messageDiv.className = 'message';
       messageDiv.dataset.type = data.type;
 
+      // Handle sourceId - explicitly set unclassified for messages without sourceId
+      if (data.sourceId && data.sourceId !== '') {
+        messageDiv.dataset.sourceId = data.sourceId;
+      } else {
+        messageDiv.dataset.sourceId = 'unclassified';
+      }
+
       // Apply visibility based on current filters
       if (!messageFilters[data.type]) {
         messageDiv.style.display = 'none';
+      }
+
+      // Also hide if not matching current source ID filter
+      if (currentSourceId !== 'all') {
+        const isUnclassified = !data.sourceId || data.sourceId === '';
+        if ((currentSourceId === 'unclassified' && !isUnclassified) ||
+          (currentSourceId !== 'unclassified' && messageDiv.dataset.sourceId !== currentSourceId)) {
+          messageDiv.style.display = 'none';
+        }
       }
 
       const timestamp = data.timestamp || new Date().toISOString();
       let content = '';
       let messageClass = data.type;
 
+      // Add source ID prefix if available, otherwise show as "Unclassified"
+      const sourceIdPrefix = data.sourceId && data.sourceId !== ''
+        ? `[${data.sourceId}] `
+        : '[Unclassified] ';
+
       if (data.type === 'acceleration') {
-        content = `Accel: x=${data.acceleration.x.toFixed(2)}, y=${data.acceleration.y.toFixed(2)}, z=${data.acceleration.z.toFixed(2)}`;
+        content = `${sourceIdPrefix}Accel: x=${data.acceleration.x.toFixed(2)}, y=${data.acceleration.y.toFixed(2)}, z=${data.acceleration.z.toFixed(2)}`;
       } else if (data.type === 'orientation') {
-        content = `Orient: α=${data.orientation.x.toFixed(2)}°, β=${data.orientation.y.toFixed(2)}°, γ=${data.orientation.z.toFixed(2)}°, abs=${data.orientation.absolute}`;
+        content = `${sourceIdPrefix}Orient: α=${data.orientation.x.toFixed(2)}°, β=${data.orientation.y.toFixed(2)}°, γ=${data.orientation.z.toFixed(2)}°, abs=${data.orientation.absolute}`;
       } else if (data.type === 'punch') {
         messageClass += data.classification ? ` punch-${data.classification}` : '';
-        content = `Punch: ${data.classification || ''} (${data.acceleration ? data.acceleration.toFixed(2) : 'N/A'})`;
+        content = `${sourceIdPrefix}Punch: ${data.classification || ''} (${data.acceleration ? data.acceleration.toFixed(2) : 'N/A'})`;
       } else if (data.type === 'error' && data.message) {
-        content = `Error: ${data.message}`;
+        content = `${sourceIdPrefix}Error: ${data.message}`;
       } else if (data.type === 'system' && data.message) {
-        content = data.message;
+        content = `${sourceIdPrefix}${data.message}`;
       } else {
-        content = JSON.stringify(data, null, 2);
+        content = `${sourceIdPrefix}${JSON.stringify(data, null, 2)}`;
       }
 
       messageDiv.innerHTML = `
@@ -1248,7 +1300,22 @@
       const messages = messageList.querySelectorAll('.message');
       messages.forEach(message => {
         const msgType = message.dataset.type;
-        message.style.display = messageFilters[msgType] ? 'block' : 'none';
+        const msgSourceId = message.dataset.sourceId || 'unclassified';
+
+        // Check message type filter
+        const isVisibleByType = messageFilters[msgType];
+
+        // Check source ID filter
+        let isVisibleBySource = false;
+        if (currentSourceId === 'all') {
+          isVisibleBySource = true;
+        } else if (currentSourceId === 'unclassified') {
+          isVisibleBySource = (msgSourceId === 'unclassified');
+        } else {
+          isVisibleBySource = (msgSourceId === currentSourceId);
+        }
+
+        message.style.display = (isVisibleByType && isVisibleBySource) ? 'block' : 'none';
       });
     }
 
@@ -1289,6 +1356,40 @@
 
     // Add event listener for the calibrate button
     document.getElementById('calibrate-visualization').addEventListener('click', calibratePhoneVisualization);
+
+    // Add this function to update the source ID dropdown
+    function updateSourceIdDropdown() {
+      // Preserve the current selection if possible
+      const currentSelection = sourceIdSelector.value;
+
+      // Clear and add the "All Sources" and "Unclassified" options
+      sourceIdSelector.innerHTML = `
+        <option value="all">All Sources</option>
+        <option value="unclassified">Unclassified</option>
+      `;
+
+      // Add all source IDs
+      sourceIds.forEach(id => {
+        const option = document.createElement('option');
+        option.value = id;
+        option.textContent = id;
+        sourceIdSelector.appendChild(option);
+      });
+
+      // Try to restore the previous selection if it still exists
+      if (sourceIdSelector.querySelector(`option[value="${currentSelection}"]`)) {
+        sourceIdSelector.value = currentSelection;
+      }
+    }
+
+    // Add event listener for the source ID selector
+    sourceIdSelector.addEventListener('change', function () {
+      currentSourceId = this.value;
+      addMessage({
+        type: 'system',
+        message: `Filtering to source ID: ${currentSourceId === 'all' ? 'All Sources' : currentSourceId}`
+      });
+    });
   </script>
 </body>
 

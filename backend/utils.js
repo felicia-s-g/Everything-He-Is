@@ -8,6 +8,10 @@ export function validateAccelerationData(sensorData) {
     console.error("Invalid acceleration data format received");
     return;
   }
+
+  // Removed fallback sourceId generation
+  console.log("sensorData", sensorData);
+
   return sensorData;
 }
 
@@ -21,9 +25,11 @@ export function validateOrientationData(sensorData) {
     console.error("Invalid orientation data format received");
     return;
   }
+
+  // Removed fallback sourceId generation
+
   // Ensure the absolute property is present, but allow it to be false
   if (sensorData.orientation.absolute === undefined) {
-    console.log("Orientation data missing absolute property");
     // Set default to false if not provided
     sensorData.orientation.absolute = false;
   }

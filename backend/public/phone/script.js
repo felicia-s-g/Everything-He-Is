@@ -4,6 +4,9 @@ let reconnectAttempts = 0;
 const baseReconnectDelay = 1000; // 1 second
 let isConnected = false;
 let maxReconnectDelay = 30000; // Cap delay at 30 seconds
+// Generate a random source ID for this client instance
+const sourceId = Math.random().toString(36).substring(2, 15) +
+  Math.random().toString(36).substring(2, 15);
 
 // Function to update connection status UI
 function updateConnectionStatus(status, message) {
@@ -36,7 +39,10 @@ function connectWebSocket() {
     reconnectAttempts = 0; // Reset reconnect attempts on successful connection
 
     // Update status to connected
-    updateConnectionStatus("connected", "Connected");
+    updateConnectionStatus(
+      "connected",
+      `Connected (Source ID: ${sourceId.substring(0, 6)}...)`,
+    );
   };
 
   ws.onmessage = (event) => {
@@ -88,6 +94,7 @@ async function getAccel() {
           ws.send(
             JSON.stringify({
               type: "acceleration",
+              sourceId: sourceId,
               timestamp: Date.now(),
               acceleration: {
                 x: event.acceleration.x,
@@ -104,6 +111,7 @@ async function getAccel() {
           ws.send(
             JSON.stringify({
               type: "orientation",
+              sourceId: sourceId,
               timestamp: Date.now(),
               orientation: {
                 x: event.alpha,

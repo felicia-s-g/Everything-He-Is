@@ -9,6 +9,10 @@ const imageContainer = document.getElementById("image-container"); // Make this 
 let currentRotation = 0; // Track the current rotation in degrees
 let skewAmount = 0; // Default to no skew
 
+// Source ID tracking
+const sourceIds = new Set();
+let currentSourceId = "all";
+
 // Add global config object with default values
 let config = {
   punch: {
@@ -36,27 +40,32 @@ let config = {
   },
 };
 
-// Add sync state variables
+// Simplified sync state - just tracks the server's counter
 let syncState = {
-  clientId: null,
+  syncCounter: null,
   lastSyncTime: 0,
-  syncInterval: 2000, // Sync every 2 seconds
-  forceSyncInterval: 10000, // Force full sync every 10 seconds
-  isSyncing: false,
-  isLeader: false,
+  syncInterval: 2000, // Add default sync intervals
+  forceSyncInterval: 10000,
 };
 
-// Add function to get seed from URL or generate a random one
-function getSeedFromURL() {
+// Get the seed value from the server's sync counter or URL parameters
+function getSeed() {
+  // If we have a server-provided counter, use that
+  if (syncState.syncCounter !== null) {
+    console.log(`Using server sync counter as seed: ${syncState.syncCounter}`);
+    return syncState.syncCounter;
+  }
+
+  // Fallback to URL parameters if no server counter
   const urlParams = new URLSearchParams(window.location.search);
   let seed = urlParams.get("seed");
 
-  // If no seed provided in URL, generate one and update URL
+  // If no seed provided in URL, generate one
   if (!seed) {
     seed = Math.floor(Math.random() * 1000000).toString();
-    const newUrl = new URL(window.location);
-    newUrl.searchParams.set("seed", seed);
-    window.history.replaceState({}, "", newUrl);
+    console.log(`Generated random seed: ${seed}`);
+  } else {
+    console.log(`Using URL seed: ${seed}`);
   }
 
   // Get skew parameter if available - this controls the horizontal skew effect
@@ -66,7 +75,6 @@ function getSeedFromURL() {
     console.log(`Using skew amount: ${skewAmount} for 3D effect`);
   }
 
-  console.log(`Using seed: ${seed} for image shuffling`);
   return seed;
 }
 
@@ -81,6 +89,49 @@ function seededRandom(seed) {
     z = (a * z + c) % m;
     return z / m;
   };
+}
+
+// Initialize the source ID selector
+function initSourceIdSelector() {
+  const sourceIdSelector = document.getElementById("source-id-selector");
+  if (!sourceIdSelector) return;
+
+  sourceIdSelector.addEventListener("change", function () {
+    currentSourceId = this.value;
+    console.log(
+      `Filtering to source ID: ${
+        currentSourceId === "all" ? "All Sources" : currentSourceId
+      }`,
+    );
+  });
+}
+
+// Update the source ID dropdown with new IDs
+function updateSourceIdDropdown() {
+  const sourceIdSelector = document.getElementById("source-id-selector");
+  if (!sourceIdSelector) return;
+
+  // Preserve the current selection if possible
+  const currentSelection = sourceIdSelector.value;
+
+  // Clear and add the "All Sources" and "Unclassified" options
+  sourceIdSelector.innerHTML = `
+    <option value="all">All Sources</option>
+    <option value="unclassified">Unclassified</option>
+  `;
+
+  // Add all source IDs
+  sourceIds.forEach((id) => {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = id;
+    sourceIdSelector.appendChild(option);
+  });
+
+  // Try to restore the previous selection if it still exists
+  if (sourceIdSelector.querySelector(`option[value="${currentSelection}"]`)) {
+    sourceIdSelector.value = currentSelection;
+  }
 }
 
 function nextImage(dynamicTimeout = 350) {
@@ -143,10 +194,7 @@ function nextImage(dynamicTimeout = 350) {
     selectedIndex = nextIndex;
     console.log(`Changing from index ${oldIndex} to ${selectedIndex}`);
 
-    // Update URL with the new index
-    const newUrl = new URL(window.location);
-    newUrl.searchParams.set("index", selectedIndex.toString());
-    window.history.replaceState({}, "", newUrl);
+    // No longer updating URL with index parameter
 
     let next = document.querySelectorAll(".image-slide")[selectedIndex];
     if (!next) {
@@ -154,7 +202,7 @@ function nextImage(dynamicTimeout = 350) {
       return;
     }
 
-    // Fade in the next image
+    // Show the next image (make it fully visible)
     next.style.opacity = "1";
     console.log("Made next image visible");
 
@@ -166,30 +214,26 @@ function nextImage(dynamicTimeout = 350) {
   }, dynamicTimeout);
 }
 
-// Initialize WebSocket connections
+// Initialize WebSocket connections and set up counter refresh
 function initWebSocket() {
   // Close any existing connections
   if (wsConnection) {
     wsConnection.close();
   }
 
-  // Create a WebSocket connection to debug endpoint for orientation data
+  // Create a WebSocket connection to debug endpoint
   const wsDebugUrl = `wss://${window.location.host}/ws/debug`;
-  wsConnection = new WebSocket(wsDebugUrl);
+  const wsUrl = `wss://${window.location.host}/ws/ui-signals`;
 
-  // Generate a unique client ID if we don't have one yet
-  if (!syncState.clientId) {
-    syncState.clientId = Date.now().toString(36) +
-      Math.random().toString(36).substring(2);
-    console.log(`Generated client ID: ${syncState.clientId}`);
-  }
+  // First try connecting to the debug WebSocket
+  wsConnection = new WebSocket(wsDebugUrl);
 
   // Connection opened
   wsConnection.addEventListener("open", (event) => {
     console.log("Connected to debug WebSocket");
 
-    // Start state synchronization when websocket is connected
-    initStateSync();
+    // Start periodic counter refresh
+    startCounterRefresh();
   });
 
   // Listen for messages
@@ -201,144 +245,117 @@ function initWebSocket() {
   // Connection closed
   wsConnection.addEventListener("close", (event) => {
     console.log("Debug WebSocket connection closed");
-    // Attempt to reconnect after 5 seconds
-    setTimeout(initWebSocket, 5000);
+
+    // Stop the counter refresh interval when connection is closed
+    stopCounterRefresh();
+
+    setTimeout(() => {
+      console.log("Attempting to reconnect to debug WebSocket...");
+      initWebSocket();
+    }, 3000); // Try to reconnect after 3 seconds
   });
 
-  // Connection error
-  wsConnection.addEventListener("error", (event) => {
-    console.error("WebSocket error:", event);
+  // Also connect to the UI signals WebSocket
+  window.uiSignalsWs = new WebSocket(wsUrl);
+
+  window.uiSignalsWs.addEventListener("open", (event) => {
+    console.log("Connected to UI signals WebSocket");
   });
 
-  // Create a second WebSocket connection to ui-signals endpoint for punch data
-  const wsUiUrl = `wss://${window.location.host}/ws/ui-signals`;
-  const uiSignalsWs = new WebSocket(wsUiUrl);
-  window.uiSignalsWs = uiSignalsWs; // Store globally for debugging
-
-  // Connection opened for UI signals
-  uiSignalsWs.addEventListener("open", (event) => {
-    console.log("Connected to ui-signals WebSocket");
-  });
-
-  // Listen for punch messages from UI signals
-  uiSignalsWs.addEventListener("message", (event) => {
-    console.log("UI signals WebSocket message received:", event.data);
+  window.uiSignalsWs.addEventListener("message", (event) => {
     try {
       const data = JSON.parse(event.data);
+      console.log("Received UI signals message:", data);
 
-      // Handle punch data from ui-signals
+      // Track source ID if present
+      if (data.sourceId && data.sourceId !== "") {
+        if (!sourceIds.has(data.sourceId)) {
+          sourceIds.add(data.sourceId);
+          updateSourceIdDropdown();
+        }
+      }
+
+      // If the message contains a sync counter, update our sync state
+      if (data.syncCounter !== undefined) {
+        updateSyncCounter(data.syncCounter);
+      }
+
+      // Handle punch events
       if (data.type === "punch") {
-        console.log("Punch event from ui-signals:", data);
-        // Pass the complete data object to handlePunch for more flexibility
         handlePunch(data);
       }
-
-      // Handle sync messages
-      if (data.type === "sync") {
-        handleSyncMessage(data);
-      }
     } catch (error) {
-      console.error("Error processing UI WebSocket message:", error);
+      console.error("Error processing UI signals message:", error);
     }
   });
 
-  // Add error and close listeners for UI signals WebSocket
-  uiSignalsWs.addEventListener("error", (event) => {
-    console.error("UI signals WebSocket error:", event);
-  });
-
-  uiSignalsWs.addEventListener("close", (event) => {
+  window.uiSignalsWs.addEventListener("close", (event) => {
     console.log("UI signals WebSocket connection closed");
-    // Reconnect UI signals WebSocket after 5 seconds
     setTimeout(() => {
-      console.log("Attempting to reconnect ui-signals WebSocket");
-      const reconnectUrl = `wss://${window.location.host}/ws/ui-signals`;
-      window.uiSignalsWs = new WebSocket(reconnectUrl);
-      // Re-attach all event listeners
-      window.uiSignalsWs.addEventListener("open", (event) => {
-        console.log("Reconnected to ui-signals WebSocket");
-        // Restart sync when reconnected
-        initStateSync();
-      });
-      window.uiSignalsWs.addEventListener("message", (event) => {
-        console.log(
-          "UI signals WebSocket message received after reconnect:",
-          event.data,
-        );
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === "punch") {
-            console.log("Punch event from ui-signals after reconnect:", data);
-            handlePunch(data);
-          }
-          if (data.type === "sync") {
-            handleSyncMessage(data);
-          }
-        } catch (error) {
-          console.error(
-            "Error processing UI WebSocket message after reconnect:",
-            error,
-          );
-        }
-      });
-    }, 5000);
+      console.log("Attempting to reconnect to UI signals WebSocket...");
+      // The main initWebSocket will handle reconnection of both
+    }, 3000);
   });
 }
 
 // Fetch images from the API endpoint
 async function fetchImages() {
   try {
-    console.log("Fetching images from API...");
     const response = await fetch("/api/images");
     if (!response.ok) {
-      throw new Error(
-        `Failed to fetch images: ${response.status} ${response.statusText}`,
-      );
-    }
-
-    const imageData = await response.json();
-    console.log("Raw image data received:", imageData.length, "images");
-
-    if (!imageData || !Array.isArray(imageData) || imageData.length === 0) {
-      console.error("No images received from API");
+      console.error("Error fetching images:", response.statusText);
       return;
     }
 
-    images = imageData.map((img) => img.url);
+    const data = await response.json();
+    console.log(`Fetched ${data.length} images`);
 
-    console.log("Processed images:", images.length);
-    console.log("First few images:", images.slice(0, 3));
+    // Store the original array
+    const originalImages = data;
 
-    // Get seed from URL or create one
-    const seed = parseInt(getSeedFromURL(), 10);
+    // Try to fetch server-side sync counter BEFORE shuffling images
+    if (syncState.syncCounter === null) {
+      try {
+        const counterResponse = await fetch("/api/sync-counter");
+        if (counterResponse.ok) {
+          const counterData = await counterResponse.json();
+          if (counterData.counter !== undefined) {
+            updateSyncCounter(counterData.counter);
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching sync counter:", error);
+      }
+    }
 
-    // Use seeded random generator for consistent shuffling across devices
-    const random = seededRandom(seed);
+    // Get the current seed for deterministic shuffling
+    const seed = getSeed();
+    console.log(`Using seed ${seed} for deterministic shuffling`);
 
-    // Fisher-Yates shuffle with seeded random
+    // Create a seeded random number generator
+    const random = seededRandom(parseInt(seed));
+
+    // Create a copy to shuffle
+    images = [...originalImages];
+
+    // Shuffle the array using Fisher-Yates algorithm with our seeded random
     for (let i = images.length - 1; i > 0; i--) {
       const j = Math.floor(random() * (i + 1));
       [images[i], images[j]] = [images[j], images[i]];
     }
 
-    // Attempt to restore selected index from URL parameter
-    const urlParams = new URLSearchParams(window.location.search);
-    const indexParam = urlParams.get("index");
-    if (indexParam !== null && !isNaN(parseInt(indexParam))) {
-      const parsedIndex = parseInt(indexParam);
-      if (parsedIndex >= 0 && parsedIndex < images.length) {
-        selectedIndex = parsedIndex;
-        console.log(`Restored selectedIndex from URL: ${selectedIndex}`);
-      }
-    }
+    console.log(`Shuffled ${images.length} images with seed ${seed}`);
 
-    localStorage.setItem("shuffledImages", JSON.stringify(images));
-    localStorage.setItem("imageSeed", seed.toString());
-    console.log("Loading images into DOM...");
+    // Always reset to first image
+    selectedIndex = 0;
+
+    // Load the shuffled images into the DOM
     loadImages();
-    console.log("Images loaded successfully");
+
+    return images;
   } catch (error) {
-    console.error("Error fetching images:", error);
+    console.error("Error in fetchImages:", error);
+    return [];
   }
 }
 
@@ -357,18 +374,19 @@ function loadImages() {
     return;
   }
 
-  images.forEach((src, index) => {
+  images.forEach((image, index) => {
     let img = document.createElement("img");
-    img.src = src;
+    img.src = image.url;
     img.classList.add("image-slide");
-    img.alt = `Image ${index + 1}`;
+    img.alt = image.alt || `Image ${index + 1}`;
+    img.dataset.id = image.id;
 
     // Set initial styles with faster transitions for better performance
     img.style.transition = "transform 0.15s ease-out, opacity 0.3s ease-out";
     img.style.transformOrigin = "center center";
     img.dataset.currentZoom = "1"; // Initialize zoom value for all images
 
-    if (index === 0) {
+    if (index === selectedIndex) {
       // First image is visible - apply 3D effect if skew is enabled
       if (skewAmount !== 0) {
         img.style.transform = `perspective(1000px) 
@@ -393,23 +411,6 @@ function loadImages() {
       }
     }
 
-    // Add a load event handler to ensure images are properly loaded
-    img.onload = function () {
-      console.log(`Image ${index + 1} loaded successfully`);
-      // Make first image visible once loaded
-      if (index === 0) {
-        img.style.opacity = "1";
-      }
-    };
-
-    // Add an error handler
-    img.onerror = function () {
-      console.error(`Failed to load image at index ${index}: ${src}`);
-      // Replace with a placeholder if the image fails to load
-      img.src =
-        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200' viewBox='0 0 300 200'%3E%3Crect width='300' height='200' fill='%23cccccc'/%3E%3Ctext x='150' y='100' font-family='Arial' font-size='16' text-anchor='middle' fill='%23999999'%3EImage not found%3C/text%3E%3C/svg%3E";
-    };
-
     imageContainer.appendChild(img);
   });
 
@@ -420,35 +421,37 @@ function loadImages() {
 
 // Function to update which image is selected without rebuilding the entire list
 function updateSelectedImage(newIndex) {
-  // Remove selected class from all images
+  // Skip if no image container or no images
+  if (!images.length) return;
+
+  // Update selectedIndex
+  selectedIndex = newIndex;
+
+  // Update preview UI if it exists
   document.querySelectorAll(".preview-image").forEach((img) => {
-    img.classList.remove("selected");
+    img.classList.toggle(
+      "selected",
+      parseInt(img.dataset.index) === selectedIndex,
+    );
   });
 
-  // Add selected class to the new selected image
-  const newSelectedImage = document.getElementById(`image-${newIndex}`);
-  if (newSelectedImage) {
-    newSelectedImage.classList.add("selected");
-    selectedIndex = newIndex;
-
-    // Store the selected index in localStorage
-    localStorage.setItem("selectedIndex", selectedIndex);
-
-    // Update URL with current index for sharing/syncing
-    const newUrl = new URL(window.location);
-    newUrl.searchParams.set("index", selectedIndex.toString());
-    window.history.replaceState({}, "", newUrl);
-
-    // Broadcast state change to other clients
-    broadcastStateUpdate();
-
-    window.dispatchEvent(new Event("storage"));
-  }
+  // Update main display
+  document.querySelectorAll(".image-slide").forEach((img, idx) => {
+    if (idx === selectedIndex) {
+      img.style.opacity = "1";
+      img.style.display = "block";
+    } else {
+      img.style.opacity = "0";
+      img.style.display = "none";
+    }
+  });
 }
 
 // Setup scroll event listener to detect which image is in view
 function setupScrollListener() {
   const container = document.getElementById("preview-container");
+
+  if (!container) return; // Skip if container doesn't exist (main view)
 
   container.addEventListener("scroll", () => {
     // Skip if auto-scrolling is in progress to avoid interference
@@ -474,7 +477,15 @@ function setupScrollListener() {
     if (
       closestImage && parseInt(closestImage.dataset.index) !== selectedIndex
     ) {
-      updateSelectedImage(parseInt(closestImage.dataset.index));
+      selectedIndex = parseInt(closestImage.dataset.index);
+
+      // Update preview UI but don't update URL parameters
+      document.querySelectorAll(".preview-image").forEach((img) => {
+        img.classList.toggle(
+          "selected",
+          parseInt(img.dataset.index) === selectedIndex,
+        );
+      });
     }
   }, { passive: true }); // Use passive listener for better scroll performance
 }
@@ -588,26 +599,30 @@ function tiltBasedZoom(betaRotation) {
   // Skip if no images
   if (!images.length) return;
 
-  console.log("Beta rotation zoom:", betaRotation);
-
-  // Ensure beta rotation is a number and has a reasonable value
   const beta = typeof betaRotation === "number"
     ? betaRotation
     : parseFloat(betaRotation);
   if (isNaN(beta)) return;
 
-  // neutral zoom is at beta 180 degrees
-  // zoom at 100 degrees is 2.0
-  // zoom at 0 degrees is 0.5
-  let zoomFactor;
+  // Ensure beta rotation is a number and has a reasonable value
+  let adjustedBeta = 180 - Math.abs(beta);
+  let sign = 1;
 
-  if (beta <= 90) {
-    // For 0-90 degrees, map from 0.75 to 1.0
-    zoomFactor = 0.75 + (beta / 90 * 0.25);
-  } else {
-    // For 90-180 degrees, map from 1.0 to 1.5
-    zoomFactor = 1.0 + ((beta - 90) / 90 * 0.5);
+  if (betaRotation < 0) {
+    sign = -1;
   }
+
+  // Calculate zoom factor based on adjusted beta and sign
+  // Map adjustedBeta (0-180) to a zoom range of 0.5 to 1.5
+  // When device is flat (adjustedBeta = 0), zoomFactor = 1.0
+  const minZoom = 0.3;
+  const maxZoom = 1.7;
+  const zoomRange = maxZoom - minZoom;
+  const normalizedBeta = adjustedBeta / 180; // Convert to 0-1 range
+  let zoomFactor = 1.0 + (normalizedBeta * zoomRange * 0.5 * -sign); // Negated sign to reverse zoom direction
+
+  // New logic: resting position is at adjustedBeta 0 degrees
+  // Map the beta range to appropriate zoom factors
 
   // Apply zoom to the currently selected image
   const currentImage = document.querySelectorAll(".image-slide")[selectedIndex];
@@ -619,7 +634,7 @@ function tiltBasedZoom(betaRotation) {
     if (skewAmount !== 0) {
       // Calculate skew based on tilt - more tilt means more skew
       // This creates a dynamic 3D effect that changes with device tilt
-      const tiltFactor = Math.abs((beta - 90) / 90); // 0 to 1 based on how far from neutral
+      const tiltFactor = Math.abs(adjustedBeta / 90); // 0 to 1 based on how far from neutral
       const dynamicSkew = skewAmount * tiltFactor;
 
       // Apply 3D transform with perspective, skew, and scale
@@ -703,47 +718,36 @@ function advancePhotos(count = 1) {
   );
 }
 
-// Ensure imageContainer is properly initialized when page loads
-document.addEventListener("DOMContentLoaded", function () {
-  console.log("DOM fully loaded");
+// Initialize the application
+window.addEventListener("DOMContentLoaded", () => {
+  console.log("DOM fully loaded, initializing app...");
 
-  // Check if imageContainer was found
-  if (!imageContainer) {
-    console.error(
-      "Image container not found on initial load, attempting to get it again",
-    );
-    // Try to get it again now that DOM is fully loaded
-    const container = document.getElementById("image-container");
-    if (container) {
-      // If found now, assign it to the global variable
-      window.imageContainer = container;
-      console.log("Image container found and assigned");
-    } else {
-      console.error(
-        "Image container element still not found. Check your HTML!",
-      );
-    }
-  } else {
-    console.log("Image container already available:", imageContainer);
-  }
+  // Initialize the source ID selector
+  initSourceIdSelector();
 
   // Fetch configuration before initializing WebSocket
   fetchConfiguration();
 
-  // Initialize WebSocket after a short delay to allow config to load
-  setTimeout(initWebSocket, 500);
+  // Try to fetch sync counter first, before loading images
+  fetchSyncCounter().then(() => {
+    // Then fetch and load images with the correct seed
+    fetchImages().then(() => {
+      // Initialize WebSocket after images are loaded
+      initWebSocket();
 
-  // Start loading images
-  fetchImages();
+      // Initialize state sync after WebSocket is connected
+      setTimeout(initStateSync, 1000);
+    });
+  });
 
-  // Setup URL parameter change listener for syncing
+  // Initialize rotation button and URL change listener
+  initRotationButton();
   setupURLChangeListener();
 
-  // Refresh configuration periodically (every 5 minutes)
-  setInterval(fetchConfiguration, 5 * 60 * 1000);
+  // Initialize the sync indicator
+  initSyncIndicator();
 
-  // Setup click event listener
-  document.removeEventListener("click", nextImage); // Remove old listener to avoid duplicates
+  // Setup click event listener for manual navigation
   document.addEventListener("click", (event) => {
     console.log("Click detected");
     nextImage();
@@ -754,11 +758,21 @@ document.addEventListener("DOMContentLoaded", function () {
     if (event.key === "ArrowRight") nextImage();
   });
 
-  // Initialize the rotation button functionality
-  initRotationButton();
+  // Setup scroll listener
+  setupScrollListener();
 
-  // Initialize visual sync indicator
-  initSyncIndicator();
+  // Update rotation position
+  updateRotationPosition();
+
+  // Make various test functions available for debugging
+  window.testScroll = testScroll;
+  window.testPunch = testPunch;
+  window.testSkew = testSkew;
+
+  // Refresh configuration periodically (every 5 minutes)
+  setInterval(fetchConfiguration, 5 * 60 * 1000);
+
+  console.log("TV interface initialized successfully");
 });
 
 // Replace the stub function with a proper implementation
@@ -808,35 +822,57 @@ function fetchConfiguration() {
     });
 }
 
-// Handle punch messages from WebSocket
+// Handle punch data
 function handlePunch(punchData) {
-  console.log("handlePunch called with:", punchData);
+  // Extract source ID from the punch data
+  const sourceId = punchData.sourceId || "";
+
+  // Track new source IDs
+  if (sourceId !== "" && !sourceIds.has(sourceId)) {
+    sourceIds.add(sourceId);
+    updateSourceIdDropdown();
+  }
+
+  // Filter by selected source ID
+  if (currentSourceId !== "all") {
+    if (currentSourceId === "unclassified") {
+      // Skip if has a sourceId (not unclassified)
+      if (sourceId !== "") {
+        console.log(
+          `Skipping punch from source ${sourceId} - only showing unclassified punches`,
+        );
+        return;
+      }
+    } else if (sourceId !== currentSourceId) {
+      // Skip if doesn't match selected source ID
+      console.log(
+        `Skipping punch from source ${
+          sourceId || "unclassified"
+        } - filtering for ${currentSourceId}`,
+      );
+      return;
+    }
+  }
+
+  // Apply cooldown to punches
+  const now = Date.now();
+  if (now - lastPunchTime < PUNCH_COOLDOWN_MS) {
+    console.log("Punch ignored due to cooldown period");
+    return;
+  }
+  lastPunchTime = now;
 
   let punchValue;
 
-  // Check if punchData is a complete object (new format) or a simple value (old format)
-  if (typeof punchData === "object" && punchData !== null) {
-    // New format: extract the acceleration value
-    if (punchData.acceleration !== undefined) {
-      punchValue = punchData.acceleration;
-    } else if (punchData.value !== undefined) {
-      punchValue = punchData.value;
-    } else if (punchData.punchStrength !== undefined) {
-      punchValue = punchData.punchStrength;
+  // Extract punch value, handling different message formats
+  if (punchData.acceleration) {
+    // New format with acceleration
+    if (typeof punchData.acceleration === "object") {
+      // Extract magnitude if it's an object with x,y,z
+      punchValue = getAccelerationMagnitude(punchData.acceleration);
     } else {
-      // Try to find any property that might contain the punch value
-      const possibleValues = ["strength", "force", "magnitude", "impact"];
-      for (const key of possibleValues) {
-        if (punchData[key] !== undefined) {
-          punchValue = punchData[key];
-          break;
-        }
-      }
-
-      if (punchValue === undefined) {
-        console.warn("Unable to extract punch value from data:", punchData);
-        return;
-      }
+      // Direct number value
+      punchValue = punchData.acceleration;
     }
     console.log("Extracted punch value from object:", punchValue);
   } else {
@@ -866,6 +902,33 @@ function handleWebSocketMessage(event) {
   try {
     const data = JSON.parse(event.data);
 
+    // Track source ID if present
+    if (data.sourceId && data.sourceId !== "") {
+      if (!sourceIds.has(data.sourceId)) {
+        sourceIds.add(data.sourceId);
+        updateSourceIdDropdown();
+      }
+    }
+
+    // Check for sync counter in system messages
+    if (data.type === "system" && data.syncCounter !== undefined) {
+      updateSyncCounter(data.syncCounter);
+    }
+
+    // Filter by source ID
+    if (currentSourceId !== "all") {
+      const sourceId = data.sourceId || "";
+      if (currentSourceId === "unclassified") {
+        // Skip if has sourceId
+        if (sourceId !== "") {
+          return;
+        }
+      } else if (sourceId !== currentSourceId) {
+        // Skip if doesn't match current sourceId
+        return;
+      }
+    }
+
     // Handle different message types
     if (data.type === "punch") {
       handlePunch(data);
@@ -891,6 +954,11 @@ function handleWebSocketMessage(event) {
     } else if (data.type === "tilt") {
       // For backward compatibility, if any code still sends generic tilt values
       tiltBasedZoom(data.value * 180); // Scale to beta-equivalent range
+    } else if (data.type === "sync") {
+      // Update sync counter from sync messages
+      if (data.syncCounter !== undefined) {
+        updateSyncCounter(data.syncCounter);
+      }
     }
   } catch (error) {
     console.error("Error parsing WebSocket message:", error);
@@ -938,30 +1006,24 @@ window.testPunch = testPunch;
 
 // Add function to handle URL parameter changes
 function setupURLChangeListener() {
-  // Listen for changes to the URL (like when someone pastes a new URL with different params)
+  // Remove all logic for handling URL changes with index parameter
+  // Only keep skew parameter handling
   window.addEventListener("popstate", function () {
     const urlParams = new URLSearchParams(window.location.search);
-    const indexParam = urlParams.get("index");
+    const skewParam = urlParams.get("skew");
 
-    if (indexParam !== null && !isNaN(parseInt(indexParam))) {
-      const newIndex = parseInt(indexParam);
-      if (
-        newIndex >= 0 && newIndex < images.length && newIndex !== selectedIndex
-      ) {
-        console.log(`URL index changed to ${newIndex}, updating display`);
-        selectedIndex = newIndex;
-        updatePreview();
+    if (skewParam !== null && !isNaN(parseFloat(skewParam))) {
+      skewAmount = parseFloat(skewParam);
+      console.log(`URL skew changed to ${skewAmount}, updating display`);
 
-        // Make the current image visible and hide others
-        document.querySelectorAll(".image-slide").forEach((img, idx) => {
-          if (idx === selectedIndex) {
-            img.style.opacity = "1";
-            img.style.display = "block";
-          } else {
-            img.style.opacity = "0";
-            img.style.display = "none";
-          }
-        });
+      // Apply to current image
+      const currentImage =
+        document.querySelectorAll(".image-slide")[selectedIndex];
+      if (currentImage) {
+        const zoomFactor = currentImage.dataset.currentZoom || 1;
+        currentImage.style.transform = `perspective(1000px) 
+           rotateY(${skewAmount}deg) 
+           scale3d(${zoomFactor}, ${zoomFactor}, 1)`;
       }
     }
   });
@@ -1094,11 +1156,10 @@ function sendFullStateSync() {
   const syncMessage = {
     type: "sync",
     action: "fullSync",
-    clientId: syncState.clientId,
     timestamp: Date.now(),
     data: {
       selectedIndex,
-      seed: getSeedFromURL(),
+      seed: getSeed(),
       totalImages: images.length,
     },
   };
@@ -1116,11 +1177,10 @@ function broadcastStateUpdate() {
   const stateMessage = {
     type: "sync",
     action: "update",
-    clientId: syncState.clientId,
     timestamp: Date.now(),
     data: {
       selectedIndex,
-      seed: getSeedFromURL(),
+      seed: getSeed(),
     },
   };
 
@@ -1130,11 +1190,7 @@ function broadcastStateUpdate() {
 
 // Function to handle incoming sync messages
 function handleSyncMessage(message) {
-  if (message.clientId === syncState.clientId) {
-    // Ignore our own messages
-    return;
-  }
-
+  // No longer filtering messages by clientId
   console.log("Received sync message:", message);
 
   if (message.action === "fullSync" || message.action === "update") {
@@ -1167,10 +1223,7 @@ function handleSyncMessage(message) {
           }
         });
 
-        // Update URL without broadcasting (to avoid sync loops)
-        const newUrl = new URL(window.location);
-        newUrl.searchParams.set("index", selectedIndex.toString());
-        window.history.replaceState({}, "", newUrl);
+        // No longer update URL with index parameter
       }
     }
   }
@@ -1205,33 +1258,21 @@ function initSyncIndicator() {
       setTimeout(() => {
         indicator.style.backgroundColor = "#0f0";
         indicator.style.opacity = "0.5";
-      }, 300);
-    } else if (status === "success") {
-      indicator.style.backgroundColor = "#0f0";
-      indicator.style.opacity = "0.5";
+      }, 1000);
+    } else if (status === "synced") {
+      indicator.style.backgroundColor = "#0f0"; // Green
+      indicator.style.opacity = "0.8";
+      setTimeout(() => {
+        indicator.style.opacity = "0.5";
+      }, 1000);
     } else if (status === "error") {
       indicator.style.backgroundColor = "red";
       indicator.style.opacity = "0.8";
     }
   };
 
-  // Store the function globally
+  // Expose the update function globally for other parts of the code
   window.updateSyncIndicator = updateSyncIndicator;
-
-  // Update indicator status on sync events
-  const originalBroadcastStateUpdate = broadcastStateUpdate;
-  window.broadcastStateUpdate = function () {
-    updateSyncIndicator("syncing");
-    originalBroadcastStateUpdate();
-  };
-
-  // Override the sync handler to update the indicator
-  const originalHandleSyncMessage = handleSyncMessage;
-  window.handleSyncMessage = function (message) {
-    updateSyncIndicator("syncing");
-    originalHandleSyncMessage(message);
-    updateSyncIndicator("success");
-  };
 }
 
 // Add function to test the 3D skew effect
@@ -1260,3 +1301,163 @@ function testSkew(amount = 15) {
 
 // Make testSkew globally accessible for console testing
 window.testSkew = testSkew;
+
+// Function to update the sync counter and possibly reload/reshuffle images
+function updateSyncCounter(counter) {
+  if (counter === syncState.syncCounter) {
+    return; // No change
+  }
+
+  console.log(
+    `Updating sync counter from ${syncState.syncCounter} to ${counter}`,
+  );
+  syncState.syncCounter = counter;
+  syncState.lastSyncTime = Date.now();
+
+  // If images are already loaded, we need to reshuffle them with the new seed
+  if (images.length > 0) {
+    console.log("Reshuffling images with new sync counter as seed");
+    // Shuffle images using the new sync counter as seed
+    shuffleImagesWithSeed(counter);
+    // Update the display to show the first image
+    selectedIndex = 0;
+    updateImageDisplay();
+  }
+
+  // Update sync indicator if it exists
+  if (window.updateSyncIndicator) {
+    window.updateSyncIndicator("synced");
+  }
+}
+
+// Shuffle images using the deterministic seed
+function shuffleImagesWithSeed(seed) {
+  console.log(`Shuffling images with seed: ${seed}`);
+
+  // Use parseInt to ensure we have a number for the seeded random generator
+  const numericSeed = typeof seed === "number" ? seed : parseInt(seed);
+  const random = seededRandom(numericSeed);
+
+  // Create a copy of the original unshuffled images if available
+  const originalImages = [...images];
+
+  // Reset the images array
+  images = [];
+
+  // Shuffle the copy using Fisher-Yates algorithm with seeded random
+  for (let i = originalImages.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [originalImages[i], originalImages[j]] = [
+      originalImages[j],
+      originalImages[i],
+    ];
+  }
+
+  // Reassign the shuffled array
+  images = originalImages;
+
+  console.log(`Shuffled ${images.length} images with seed ${seed}`);
+}
+
+// Update the display to show the current image
+function updateImageDisplay() {
+  // Clear the container
+  imageContainer.innerHTML = "";
+
+  // Create and add each image
+  images.forEach((image, index) => {
+    const img = document.createElement("img");
+    img.src = image.url;
+    img.alt = image.alt || "";
+    img.className = "image-slide";
+    img.dataset.id = image.id;
+
+    // Only show the current image
+    if (index === selectedIndex) {
+      img.style.opacity = "1";
+      img.style.display = "block";
+    } else {
+      img.style.opacity = "0";
+      img.style.display = "none";
+    }
+
+    imageContainer.appendChild(img);
+  });
+}
+
+// Replace the complex sync functions with a simple update function
+function updateSyncIndicator(status) {
+  const indicator = document.getElementById("sync-indicator");
+  if (!indicator) return;
+
+  if (status === "synced") {
+    indicator.style.backgroundColor = "#0f0"; // Green
+    indicator.style.opacity = "0.8";
+
+    // Fade out after a moment
+    setTimeout(() => {
+      indicator.style.opacity = "0.5";
+    }, 1000);
+  } else if (status === "syncing") {
+    indicator.style.backgroundColor = "yellow";
+    indicator.style.opacity = "0.8";
+  } else if (status === "error") {
+    indicator.style.backgroundColor = "red";
+    indicator.style.opacity = "0.8";
+  }
+}
+
+// Create a sync indicator element
+function initSyncIndicator() {
+  // Create sync indicator element if it doesn't exist
+  if (!document.getElementById("sync-indicator")) {
+    const syncIndicator = document.createElement("div");
+    syncIndicator.id = "sync-indicator";
+    syncIndicator.style.position = "fixed";
+    syncIndicator.style.bottom = "10px";
+    syncIndicator.style.left = "10px";
+    syncIndicator.style.width = "10px";
+    syncIndicator.style.height = "10px";
+    syncIndicator.style.borderRadius = "50%";
+    syncIndicator.style.backgroundColor = "#ccc";
+    syncIndicator.style.opacity = "0.5";
+    syncIndicator.style.transition = "all 0.3s ease";
+    document.body.appendChild(syncIndicator);
+  }
+}
+
+// Add this function to periodically refresh the counter from the server
+let counterRefreshInterval = null;
+
+function startCounterRefresh() {
+  // Stop any existing interval
+  stopCounterRefresh();
+
+  // Fetch immediately
+  fetchSyncCounter();
+
+  // Then set up interval (every 10 seconds)
+  counterRefreshInterval = setInterval(fetchSyncCounter, 10000);
+}
+
+function stopCounterRefresh() {
+  if (counterRefreshInterval) {
+    clearInterval(counterRefreshInterval);
+    counterRefreshInterval = null;
+  }
+}
+
+// Function to fetch counter from the server
+async function fetchSyncCounter() {
+  try {
+    const response = await fetch("/api/sync-counter");
+    if (response.ok) {
+      const data = await response.json();
+      if (data.counter !== undefined) {
+        updateSyncCounter(data.counter);
+      }
+    }
+  } catch (error) {
+    console.error("Error fetching sync counter:", error);
+  }
+}

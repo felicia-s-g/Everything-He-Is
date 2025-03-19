@@ -18,6 +18,9 @@ const sslOptions = {
   cert: fs.readFileSync("./certs/hub-selfsigned.crt"),
 };
 
+// Simple counter for screen synchronization
+let globalSyncCounter = Math.floor(Math.random() * 1000000); // Start with random seed
+
 const app = express();
 const httpsServer = https.createServer(sslOptions, app);
 const httpServer = http.createServer(app);
@@ -104,6 +107,11 @@ app.get("/api/images", (req, res) => {
   });
 });
 
+// REST API for getting current sync counter
+app.get("/api/sync-counter", (req, res) => {
+  res.json({ counter: globalSyncCounter });
+});
+
 // REST API for getting/updating config
 app.use(express.json());
 
@@ -148,27 +156,6 @@ function broadcastToAllClients(channel, message) {
   sendToClients(httpWebsocketsServer, channel, message);
 }
 
-// New function to forward messages to all clients except the sender
-function forwardToOtherClients(sourceServer, message, senderId, channel) {
-  if (sourceServer.clients && sourceServer.clients.size > 0) {
-    sourceServer.clients.forEach((client) => {
-      // Only forward to clients on the specified channel that aren't the sender
-      if (
-        client.path === channel && client.readyState === WebSocket.OPEN &&
-        client.clientId !== senderId
-      ) {
-        client.send(JSON.stringify(message));
-      }
-    });
-  }
-}
-
-// Helper function to forward messages to all clients except the sender on both servers
-function forwardToAllOtherClients(message, senderId, channel) {
-  forwardToOtherClients(websocketsServer, message, senderId, channel);
-  forwardToOtherClients(httpWebsocketsServer, message, senderId, channel);
-}
-
 function classifiedPunchDetector(server) {
   // Use the punch detector from signals.js which now uses the config singleton
   const signal = classifiedPunchDetected();
@@ -176,6 +163,17 @@ function classifiedPunchDetector(server) {
   return (sensorData) => {
     const punch = signal(sensorData);
     if (punch) {
+      // Increment the global counter on punch detection
+      globalSyncCounter++;
+
+      // Add the counter to the punch data
+      punch.syncCounter = globalSyncCounter;
+
+      // Only include sourceId if it exists in the original sensor data
+      if (sensorData.sourceId) {
+        punch.sourceId = sensorData.sourceId;
+      }
+
       // Send to UI signals for the TV interface on both servers
       broadcastToAllClients("/ws/ui-signals", punch);
 
@@ -193,7 +191,7 @@ function throttledDebug(server) {
   };
 }
 
-// Helper function to mirror messages between WebSocket servers
+// Helper function to mirror WebSocket connections between servers - simplified for counter-based sync
 function mirrorWebSocketConnections(ws, req, sourceServer, targetServer) {
   // Store the path in the WebSocket object for later reference
   ws.path = req.url;
@@ -215,20 +213,18 @@ function mirrorWebSocketConnections(ws, req, sourceServer, targetServer) {
         // Send data immediately without throttling
         debug(sensorData);
         detectPunch(sensorData);
-
-        // No need to mirror the data messages, as the punch detector and debug functions
-        // already send to all connected clients via broadcastToAllClients
       } catch (error) {
         console.error("Error processing WebSocket message:", error);
       }
     });
   } // Debug interface
   else if (req.url === "/ws/debug") {
-    // Send current configuration to the newly connected client
+    // Send current configuration and sync counter to the newly connected client
     ws.send(JSON.stringify({
       type: "system",
       message: "Current punch configuration",
       punchConfig: config.punch,
+      syncCounter: globalSyncCounter,
     }));
 
     // Handle configuration messages from the debug interface
@@ -247,73 +243,96 @@ function mirrorWebSocketConnections(ws, req, sourceServer, targetServer) {
           detectPunch = classifiedPunchDetector(sourceServer);
 
           // Send confirmation back to all debug clients
-          broadcastToAllClients("/ws/debug", {
+          const response = {
             type: "system",
             message: "Punch configuration updated",
             punchConfig: config.punch,
-          });
+            syncCounter: globalSyncCounter,
+          };
+
+          // Only include sourceId if it exists in the original data
+          if (data.sourceId) {
+            response.sourceId = data.sourceId;
+          }
+
+          broadcastToAllClients("/ws/debug", response);
         } else if (data.type === "getConfig") {
           // Send current configuration to the client that requested it
-          ws.send(JSON.stringify({
+          const response = {
             type: "system",
             message: "Current punch configuration",
             punchConfig: config.punch,
-          }));
+            syncCounter: globalSyncCounter,
+          };
+
+          // Only include sourceId if it exists in the original data
+          if (data.sourceId) {
+            response.sourceId = data.sourceId;
+          }
+
+          ws.send(JSON.stringify(response));
         } // Simple position reset handler
         else if (data.type === "resetPosition") {
+          // Increment counter on position reset
+          globalSyncCounter++;
+
           // Send confirmation back to all debug clients
-          broadcastToAllClients("/ws/debug", {
+          const response = {
             type: "system",
             message: "Position reset requested",
-          });
+            syncCounter: globalSyncCounter,
+          };
+
+          // Only include sourceId if it exists in the original data
+          if (data.sourceId) {
+            response.sourceId = data.sourceId;
+          }
+
+          broadcastToAllClients("/ws/debug", response);
         } // Simple position calibration handler
         else if (data.type === "calibratePosition") {
+          // Increment counter on position calibration
+          globalSyncCounter++;
+
           // Send confirmation back to all debug clients
-          broadcastToAllClients("/ws/debug", {
+          const response = {
             type: "system",
             message:
               "Position calibration requested - this feature has been temporarily disabled",
-          });
+            syncCounter: globalSyncCounter,
+          };
+
+          // Only include sourceId if it exists in the original data
+          if (data.sourceId) {
+            response.sourceId = data.sourceId;
+          }
+
+          broadcastToAllClients("/ws/debug", response);
         }
       } catch (error) {
         console.error("Error processing WebSocket message:", error);
       }
     });
-  } // UI signals client
+  } // UI signals client - simplified to just send sync counter
   else if (req.url === "/ws/ui-signals") {
-    // Store client ID once received for sync messages
+    // Send current sync counter when client connects
+    ws.send(JSON.stringify({
+      type: "sync",
+      syncCounter: globalSyncCounter,
+    }));
+
+    // Handle any messages from UI, though in the simplified model we don't need much interaction
     ws.on("message", (message) => {
       try {
+        // We can leave this simple as we're moving to server-controlled synchronization
         const data = JSON.parse(message.toString());
+        console.log("Received UI signal message:", data);
 
-        // Handle sync messages and forward them to other clients
-        if (data.type === "sync") {
-          console.log(
-            `Received sync message from client ${data.clientId}:`,
-            data.action,
-          );
-
-          // Store client ID if available
-          if (data.clientId) {
-            ws.clientId = data.clientId;
-          }
-
-          // Forward the sync message to all other clients
-          forwardToAllOtherClients(data, data.clientId, "/ws/ui-signals");
-
-          // Also log some stats about connected clients
-          let clientCount = 0;
-          sourceServer.clients.forEach((client) => {
-            if (
-              client.path === "/ws/ui-signals" &&
-              client.readyState === WebSocket.OPEN
-            ) {
-              clientCount++;
-            }
-          });
-          console.log(
-            `Currently ${clientCount} clients connected to UI signals`,
-          );
+        // Only consider sourceId if it actually exists
+        if (data.sourceId) {
+          // If needed, send response back with sourceId
+          // This is just a placeholder for any future UI interaction that needs responses
+          console.log("Received message from sourceId:", data.sourceId);
         }
       } catch (error) {
         console.error("Error handling UI signals message:", error);
