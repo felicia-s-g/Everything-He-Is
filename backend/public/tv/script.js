@@ -7,6 +7,7 @@ let lastPunchTime = 0; // Track the last punch time
 let PUNCH_COOLDOWN_MS = 300; // Shorter cooldown period between punches for more responsiveness
 const imageContainer = document.getElementById("image-container"); // Make this global
 let currentRotation = 0; // Track the current rotation in degrees
+let skewAmount = 0; // Default to no skew
 
 // Add global config object with default values
 let config = {
@@ -58,6 +59,13 @@ function getSeedFromURL() {
     window.history.replaceState({}, "", newUrl);
   }
 
+  // Get skew parameter if available - this controls the horizontal skew effect
+  const skewParam = urlParams.get("skew");
+  if (skewParam !== null && !isNaN(parseFloat(skewParam))) {
+    skewAmount = parseFloat(skewParam);
+    console.log(`Using skew amount: ${skewAmount} for 3D effect`);
+  }
+
   console.log(`Using seed: ${seed} for image shuffling`);
   return seed;
 }
@@ -84,7 +92,7 @@ function nextImage(dynamicTimeout = 350) {
     return;
   }
 
-  // Save current transform state if it exists - this preserves the zoom level
+  // Save current transform state if it exists - this preserves the zoom level and skew
   const currentTransform = currentImage.style.transform || "scale(1)";
   console.log("Current image transform:", currentTransform);
 
@@ -106,9 +114,26 @@ function nextImage(dynamicTimeout = 350) {
     // If the next image already has a zoom factor, preserve it
     // Otherwise start with default scale of 1
     if (nextImage.dataset.currentZoom) {
-      nextImage.style.transform = `scale(${nextImage.dataset.currentZoom})`;
+      // Check if we have skew enabled
+      if (skewAmount !== 0) {
+        // Apply both zoom and skew for 3D effect
+        const zoomFactor = nextImage.dataset.currentZoom;
+        nextImage.style.transform = `perspective(1000px) 
+           rotateY(${skewAmount}deg) 
+           scale3d(${zoomFactor}, ${zoomFactor}, 1)`;
+      } else {
+        // Just apply the zoom
+        nextImage.style.transform = `scale(${nextImage.dataset.currentZoom})`;
+      }
     } else {
-      nextImage.style.transform = "scale(1)";
+      // Apply default transform - either with or without skew
+      if (skewAmount !== 0) {
+        nextImage.style.transform = `perspective(1000px) 
+           rotateY(${skewAmount}deg) 
+           scale3d(1, 1, 1)`;
+      } else {
+        nextImage.style.transform = "scale(1)";
+      }
       nextImage.dataset.currentZoom = "1";
     }
   }
@@ -344,15 +369,28 @@ function loadImages() {
     img.dataset.currentZoom = "1"; // Initialize zoom value for all images
 
     if (index === 0) {
-      // First image is visible
-      img.style.transform = "scale(1)";
+      // First image is visible - apply 3D effect if skew is enabled
+      if (skewAmount !== 0) {
+        img.style.transform = `perspective(1000px) 
+           rotateY(${skewAmount}deg) 
+           scale3d(1, 1, 1)`;
+      } else {
+        img.style.transform = "scale(1)";
+      }
       img.style.opacity = "1";
       img.style.display = "block";
     } else {
       // Other images are hidden
       img.style.opacity = "0";
       img.style.display = "none";
-      img.style.transform = "scale(1)"; // Initialize with normal scale
+      // Still init the transform to ensure consistency when they appear
+      if (skewAmount !== 0) {
+        img.style.transform = `perspective(1000px) 
+           rotateY(${skewAmount}deg) 
+           scale3d(1, 1, 1)`;
+      } else {
+        img.style.transform = "scale(1)";
+      }
     }
 
     // Add a load event handler to ensure images are properly loaded
@@ -574,14 +612,31 @@ function tiltBasedZoom(betaRotation) {
   // Apply zoom to the currently selected image
   const currentImage = document.querySelectorAll(".image-slide")[selectedIndex];
   if (currentImage) {
-    // Apply responsive transition
+    // Apply responsive transition with 3D transform for better performance
     currentImage.style.transition = "transform 0.15s ease-out";
 
-    // Apply zoom centered on the image
-    currentImage.style.transform = `scale(${zoomFactor})`;
+    // If skew is enabled, apply a perspective transform for 3D effect
+    if (skewAmount !== 0) {
+      // Calculate skew based on tilt - more tilt means more skew
+      // This creates a dynamic 3D effect that changes with device tilt
+      const tiltFactor = Math.abs((beta - 90) / 90); // 0 to 1 based on how far from neutral
+      const dynamicSkew = skewAmount * tiltFactor;
+
+      // Apply 3D transform with perspective, skew, and scale
+      currentImage.style.transform = `perspective(1000px) 
+         rotateY(${dynamicSkew}deg) 
+         scale3d(${zoomFactor}, ${zoomFactor}, 1)`;
+    } else {
+      // Original zoom behavior without skew
+      currentImage.style.transform = `scale(${zoomFactor})`;
+    }
 
     // Store the current zoom value for potential use elsewhere
     currentImage.dataset.currentZoom = zoomFactor;
+    // Store skew value if needed elsewhere
+    if (skewAmount !== 0) {
+      currentImage.dataset.currentSkew = skewAmount;
+    }
   }
 }
 
@@ -1178,3 +1233,30 @@ function initSyncIndicator() {
     updateSyncIndicator("success");
   };
 }
+
+// Add function to test the 3D skew effect
+function testSkew(amount = 15) {
+  console.log(`Testing skew with amount ${amount}`);
+
+  // Update the global skew amount
+  skewAmount = amount;
+
+  // Update URL without reloading page
+  const newUrl = new URL(window.location);
+  newUrl.searchParams.set("skew", amount.toString());
+  window.history.replaceState({}, "", newUrl);
+
+  // Apply effect to current image
+  const currentImage = document.querySelectorAll(".image-slide")[selectedIndex];
+  if (currentImage) {
+    const zoomFactor = currentImage.dataset.currentZoom || 1;
+    currentImage.style.transform = `perspective(1000px) 
+       rotateY(${amount}deg) 
+       scale3d(${zoomFactor}, ${zoomFactor}, 1)`;
+  }
+
+  return `Set skew amount to ${amount}. Try different values like: testSkew(30), testSkew(-15), testSkew(0)`;
+}
+
+// Make testSkew globally accessible for console testing
+window.testSkew = testSkew;
