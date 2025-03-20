@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Punch Classification Debug</title>
+  <!-- <title>Punch Classification Debug</title> -->
   <script src="/js/three.min.js"></script>
   <style>
     body {
@@ -30,10 +30,11 @@
       padding: 16px;
       border-radius: 16px;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-      display: flex;
+      overflow-y: auto;
+      /* display: flex;
       flex-direction: column;
       align-items: center;
-      position: relative;
+      position: relative; */
     }
 
     h1,
@@ -41,13 +42,69 @@
     h3 {
       font-weight: 600;
       text-align: center;
-      margin-bottom: 16px;
+      margin-bottom: 20px;
+      margin-top: 8px;
     }
 
     #phone-container {
       width: 100%;
       height: 300px;
       position: relative;
+      border-radius: 30px;
+    }
+
+    #data-container {
+      flex: 1;
+      /* height: 700px; */
+      background-color: #2C2C2E;
+      padding: 16px;
+      border-radius: 16px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+      overflow-y: auto;
+    }
+
+    .status {
+      padding: 8px;
+      margin-bottom: 16px;
+      border-radius: 12px;
+      text-align: center;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    .connected {
+      background: rgba(93, 234, 128, 0.4);
+      color: #F8EECB;
+    }
+
+    .disconnected {
+      background: #D23D2D;
+      color: #F8EECB;
+    }
+
+    .message {
+      padding: 10px;
+      border-bottom: 1px solid #3A3A3C;
+      word-wrap: break-word;
+      font-size: 14px;
+      color: #F8EECB;
+    }
+
+    .timestamp {
+      color: #6E433D;
+      font-size: 12px;
+      padding-bottom: 2px;
+    }
+
+    .sensor-data {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 24px;
+      margin-bottom: 24px;
+      width: 96%;
+      background: #3A3A3C;
+      padding: 12px;
+      border-radius: 12px;
     }
 
     #data-container {
@@ -60,49 +117,6 @@
       overflow-y: auto;
     }
 
-    .status {
-      padding: 12px;
-      margin-bottom: 16px;
-      border-radius: 8px;
-      text-align: center;
-      font-weight: 500;
-      font-size: 14px;
-    }
-
-    .connected {
-      background: #34C759;
-      color: #1C1C1E;
-    }
-
-    .disconnected {
-      background: #FF3B30;
-      color: #1C1C1E;
-    }
-
-    .message {
-      padding: 10px;
-      border-bottom: 1px solid #3A3A3C;
-      word-wrap: break-word;
-      font-size: 14px;
-      color: #F2F2F7;
-    }
-
-    .timestamp {
-      color: #8E8E93;
-      font-size: 12px;
-      padding-bottom: 2px;
-    }
-
-    .sensor-data {
-      display: flex;
-      justify-content: space-between;
-      margin-top: 24px;
-      margin-bottom: 24px;
-      width: 100%;
-      background: #3A3A3C;
-      padding: 12px;
-      border-radius: 12px;
-    }
 
     .sensor-value {
       text-align: center;
@@ -111,14 +125,14 @@
 
     .sensor-value h3 {
       margin: 0;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 500;
       color: #8E8E93;
     }
 
     .sensor-value p {
       margin: 5px 0;
-      font-size: 20px;
+      font-size: 18px;
       font-weight: 600;
       color: #F2F2F7;
     }
@@ -149,20 +163,26 @@
       color: #F2F2F7;
     }
 
+
     button {
       width: 100%;
-      padding: 10px;
-      background-color: #007BFF;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      margin-top: 16px;
+      background-color: #3A3A3C;
       color: #F2F2F7;
       border: none;
-      border-radius: 4px;
+      border-radius: 8px;
+      border: 1px;
+      border-style: solid;
+      border-color:rgba(193, 193, 193, 0.6);
       cursor: pointer;
-      margin-top: 16px;
       font-weight: 500;
+      font-size: 13px;
     }
 
     button:hover {
-      background-color: #0069d9;
+      background-color: rgba(50, 208, 89, 0.6);
     }
 
     .punch-meter {
@@ -186,15 +206,15 @@
     }
 
     .punch-threshold.weak {
-      color: #34C759;
+      color: #468e58;
     }
 
     .punch-threshold.normal {
-      color: #FF9500;
+      color: #F5C065;
     }
 
     .punch-threshold.strong {
-      color: #FF3B30;
+      color: #D23D2D;
     }
 
     .punch-bar-container {
@@ -211,15 +231,15 @@
     }
 
     .punch-bar.weak {
-      background-color: #34C759;
+      background-color: #468e58;
     }
 
     .punch-bar.normal {
-      background-color: #FF9500;
+      background-color: #F5C065;
     }
 
     .punch-bar.strong {
-      background-color: #FF3B30;
+      background-color: #D23D2D;
     }
 
     .punch-info {
@@ -227,17 +247,17 @@
     }
 
     .punch-info .weak {
-      color: #34C759;
+      color: rgba(70, 142, 88, 0.8);
       font-weight: bold;
     }
 
     .punch-info .normal {
-      color: #FF9500;
+      color: #F5C065;
       font-weight: bold;
     }
 
     .punch-info .strong {
-      color: #FF3B30;
+      color: #D23D2D;
       font-weight: bold;
     }
 
@@ -246,19 +266,25 @@
       border-radius: 8px;
       padding: 12px;
       margin-bottom: 16px;
+      font-size: 11px;
     }
 
     .config-title {
       font-weight: 600;
-      margin-bottom: 12px;
+      margin-bottom: 14px;
       color: #8E8E93;
+      font-size: 15px;
+    }
+
+    .config-group input[type="number"] {
+      width: 100px;
     }
 
     .message-controls {
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
+      align-items: baseline;
+      margin-bottom: 8px;
     }
 
     .message-filters {
@@ -269,6 +295,7 @@
     .message-filters label {
       display: flex;
       align-items: center;
+      font-size: 14px;
     }
 
     .message-filters label input {
@@ -284,17 +311,17 @@
     }
 
     .message-content.punch-weak {
-      color: #34C759;
+      color: #468e58;
       font-weight: bold;
     }
 
     .message-content.punch-normal {
-      color: #FF9500;
+      color: #F5C065;
       font-weight: bold;
     }
 
     .message-content.punch-strong {
-      color: #FF3B30;
+      color: #D23D2D;
       font-weight: bold;
     }
 
@@ -304,7 +331,7 @@
     }
 
     .message-content.error {
-      color: #FF3B30;
+      color: #D23D2D;
       font-weight: bold;
     }
 
@@ -316,30 +343,39 @@
     }
 
     #clear-messages {
-      background-color: #6c757d;
-      color: #F2F2F7;
-      border: none;
-      border-radius: 4px;
-      padding: 6px 12px;
+      color: #F2F2F7;;
+      margin-bottom: 16px;
+      background-color: #3a3838;
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: 1px;
+      border-style: solid;
+      border-color: rgba(193, 193, 193, 0.6);
+      cursor: pointer;
+      font-size: 13px;
       cursor: pointer;
     }
 
     #clear-messages:hover {
-      background-color: #5a6268;
+      background-color: rgba(210, 61, 45, 0.9);
     }
 
     .calibrate-button {
       margin-bottom: 16px;
-      background-color: #34C759;
-      color: #1C1C1E;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 4px;
+      margin-top: 0px;
+      background-color: #3A3A3C;
+      color: #F2F2F7;
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: 1px;
+      border-style: solid;
+      border-color:rgba(193, 193, 193, 0.6);
       cursor: pointer;
+      font-size: 13px;
     }
 
     .calibrate-button:hover {
-      background-color: #28A745;
+      background-color: rgba(50, 208, 89, 0.6);
     }
 
     .collapsible .collapsible-content {
@@ -350,6 +386,7 @@
 
     .collapsible.active .collapsible-content {
       display: block;
+      padding: 8px;
     }
 
     .panel-title {
@@ -377,10 +414,11 @@
       background-color: #6c757d;
       color: #F2F2F7;
       border: none;
-      border-radius: 4px;
-      padding: 6px 12px;
+      padding: 8px 16px;
+      border-radius: 8px;
       cursor: pointer;
       float: right;
+      font-size: 13px;
     }
 
     .clear-button:hover {
@@ -390,169 +428,145 @@
 </head>
 
 <body>
-  <h1>Punch Classification Debug</h1>
+  <h2>Sensor Data Visualisation</h2>
   <div id="connection-status" class="status disconnected">Disconnected</div>
 
   <div class="container">
     <div class="visualization-container">
-      <h2>Phone Orientation</h2>
+      <h3>Device Position</h3>
 
-      <!-- Add source ID dropdown -->
-      <div style="width: 100%; margin-bottom: 16px;">
-        <label for="source-id-selector" style="display: block; margin-bottom: 8px;">Source ID:</label>
-        <select id="source-id-selector" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #3A3A3C; background-color: #1C1C1E; color: #F2F2F7;">
+      <div style="width: 100%; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+        <label for="source-id-selector" style="font-size: 12px;">Source ID:</label>
+        <select id="source-id-selector" style="flex: 1; margin-left: 16px; padding: 24px; border-radius: 4px; border: 1px solid #3A3A3C; background-color: #1C1C1E; color: #F2F2F7; font-size: 12px;">
           <option value="all">All Sources</option>
-          <!-- Source IDs will be populated dynamically -->
+          <!-- Source IDs are populated dynamically -->
         </select>
       </div>
 
-      <button id="calibrate-visualization" class="calibrate-button">Calibrate Orientation</button>
       <div id="phone-container"></div>
-
+      <button id="calibrate-visualization" class="calibrate-button">Calibrate Device Position</button>
+      
       <!-- Punch Configuration Panel -->
-      <div class="config-panel">
-        <h3>Punch Classification Settings</h3>
-
-        <div class="config-group">
-          <div class="config-title">Threshold Settings</div>
-          <div class="config-controls">
-            <div class="config-control">
-              <label for="weak-threshold">Weak Punch Threshold:</label>
-              <input type="number" id="weak-threshold" value="3" min="0" step="0.5">
-            </div>
-            <div class="config-control">
-              <label for="normal-threshold">Normal Punch Threshold:</label>
-              <input type="number" id="normal-threshold" value="6" min="0" step="0.5">
-            </div>
-            <div class="config-control">
-              <label for="strong-threshold">Strong Punch Threshold:</label>
-              <input type="number" id="strong-threshold" value="15" min="0" step="0.5">
-            </div>
-          </div>
-        </div>
-
-        <div class="config-group">
-          <div class="config-title">Detection Settings</div>
-          <div class="config-controls">
-            <div class="config-control">
-              <label for="punch-cooldown">Punch Cooldown (ms):</label>
-              <input type="number" id="punch-cooldown" value="100" min="0" step="10">
-            </div>
-            <div class="config-control">
-              <label for="punch-max-value">Max Punch Value:</label>
-              <input type="number" id="punch-max-value" value="40" min="1" step="1">
-            </div>
-            <div class="config-control">
-              <label for="min-punch-threshold">Minimum Detection Threshold:</label>
-              <input type="number" id="min-punch-threshold" value="2" min="0" step="0.1">
+      <div class="config-panel collapsible">
+        <div class="panel-title" onclick="togglePanel(this)">Punch Configuration Options<span class="toggle-icon">+</span></div>
+        <div class="collapsible-content">
+          <div class="config-group">
+            <div class="config-title">Punch Threshold</div>
+            <div class="config-controls">
+              <div class="config-control">
+                <label for="weak-threshold">Weak:</label>
+                <input type="number" id="weak-threshold" value="3" min="0" step="0.5">
+              </div>
+              <div class="config-control">
+                <label for="normal-threshold">Normal:</label>
+                <input type="number" id="normal-threshold" value="6" min="0" step="0.5">
+              </div>
+              <div class="config-control">
+                <label for="strong-threshold">Strong:</label>
+                <input type="number" id="strong-threshold" value="15" min="0" step="0.5">
+              </div>
             </div>
           </div>
-        </div>
 
-        <div class="config-group">
-          <div class="config-title">Acceleration Settings</div>
-          <div class="config-controls">
-            <div class="config-control">
-              <label for="accel-weight-x">X-axis Weight:</label>
-              <input type="number" id="accel-weight-x" value="1.0" min="0" max="10" step="0.1">
-            </div>
-            <div class="config-control">
-              <label for="accel-weight-y">Y-axis Weight:</label>
-              <input type="number" id="accel-weight-y" value="1.0" min="0" max="10" step="0.1">
-            </div>
-            <div class="config-control">
-              <label for="accel-weight-z">Z-axis Weight:</label>
-              <input type="number" id="accel-weight-z" value="1.0" min="0" max="10" step="0.1">
+          <div class="config-group">
+            <div class="config-title">Punch Detection</div>
+            <div class="config-controls">
+              <div class="config-control">
+                <label for="punch-cooldown">Punch Cooldown (ms):</label>
+                <input type="number" id="punch-cooldown" value="100" min="0" step="10">
+              </div>
+              <div class="config-control">
+                <label for="punch-max-value">Max Punch Value:</label>
+                <input type="number" id="punch-max-value" value="40" min="1" step="1">
+              </div>
+              <div class="config-control">
+                <label for="min-punch-threshold">Min Detection:</label>
+                <input type="number" id="min-punch-threshold" value="2" min="0" step="0.1">
+              </div>
             </div>
           </div>
-        </div>
 
-        <div class="config-group">
-          <div class="config-title">Direction Filter</div>
-          <div class="config-controls">
-            <div class="config-control">
-              <label for="direction-filter-enabled">Enable Direction Filter:</label>
-              <select id="direction-filter-enabled">
-                <option value="true">Enabled</option>
-                <option value="false">Disabled</option>
-              </select>
-            </div>
-            <div class="config-control">
-              <label for="direction-tolerance">Direction Tolerance (°):</label>
-              <input type="number" id="direction-tolerance" value="45" min="0" max="180" step="5">
-            </div>
-            <div class="config-control">
-              <label for="preferred-direction">Preferred Direction:</label>
-              <select id="preferred-direction">
-                <option value="positive-x">+X (Right)</option>
-                <option value="negative-x">-X (Left)</option>
-                <option value="positive-y">+Y (Up)</option>
-                <option value="negative-y">-Y (Down)</option>
-                <option value="positive-z">+Z (Forward)</option>
-                <option value="negative-z">-Z (Backward)</option>
-              </select>
+          <div class="config-group">
+            <div class="config-title">Acceleration Settings</div>
+            <div class="config-controls">
+              <div class="config-control">
+                <label for="accel-weight-x">X-axis Weight:</label>
+                <input type="number" id="accel-weight-x" value="1.0" min="0" max="10" step="0.1">
+              </div>
+              <div class="config-control">
+                <label for="accel-weight-y">Y-axis Weight:</label>
+                <input type="number" id="accel-weight-y" value="1.0" min="0" max="10" step="0.1">
+              </div>
+              <div class="config-control">
+                <label for="accel-weight-z">Z-axis Weight:</label>
+                <input type="number" id="accel-weight-z" value="1.0" min="0" max="10" step="0.1">
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- Add new config group for photo scrolling -->
-        <div class="config-group">
-          <div class="config-title">Photo Scrolling Settings</div>
-          <div class="config-controls">
-            <div class="config-control">
-              <label for="scroll-base-multiplier">Base Scroll Multiplier:</label>
-              <input type="number" id="scroll-base-multiplier" value="1.0" min="0.1" max="10" step="0.1">
-              <small>Controls overall scrolling speed for all punch strengths</small>
-            </div>
-            <div class="config-control">
-              <label for="scroll-scaling-factor">Scaling Factor:</label>
-              <input type="number" id="scroll-scaling-factor" value="0.2" min="0.05" max="2" step="0.05">
-              <small>Controls how punch strength affects number of photos scrolled (higher = more photos per punch
-                strength)</small>
-            </div>
-            <div class="config-control">
-              <label for="scroll-max-photos">Maximum Photos:</label>
-              <input type="number" id="scroll-max-photos" value="10" min="1" max="50" step="1">
-              <small>Maximum number of photos to scroll per punch, regardless of strength</small>
+          <!-- new config group for photo scrolling -->
+          <div class="config-group">
+            <div class="config-title">Photo Scrolling Settings</div>
+            <div class="config-controls">
+              <div class="config-control">
+                <label for="scroll-base-multiplier">Base Scroll Multiplier:</label>
+                <input type="number" id="scroll-base-multiplier" value="1.0" min="0.1" max="10" step="0.1">
+                <br> <br>
+                <small>Controls overall scrolling speed for all punch strengths</small>
+              </div>
+              <div class="config-control">
+                <label for="scroll-scaling-factor">Scaling Factor:</label>
+                <input type="number" id="scroll-scaling-factor" value="0.2" min="0.05" max="2" step="0.05">
+                <br> <br>
+                <small>Controls how punch strength affects number of photos scrolled (higher = more photos per punch
+                  strength)</small>
+              </div>
+              <div class="config-control">
+                <label for="scroll-max-photos">Maximum Photos:</label>
+                <input type="number" id="scroll-max-photos" value="10" min="1" max="50" step="1">
+                <br> <br>
+                <small>Maximum number of photos to scroll per punch, regardless of strength</small>
+              </div>
             </div>
           </div>
-        </div>
 
-        <button id="apply-config">Apply Configuration</button>
+          <button id="apply-config">Apply Configuration</button>
 
-        <div class="punch-visualization">
-          <h3>Photo Scrolling Preview</h3>
-          <div class="punch-info">
-            <p>For a <span class="weak">weak</span> punch: <span id="weak-photo-count">0</span> photos</p>
-            <p>For a <span class="normal">normal</span> punch: <span id="normal-photo-count">0</span> photos</p>
-            <p>For a <span class="strong">strong</span> punch: <span id="strong-photo-count">0</span> photos</p>
-          </div>
-        </div>
-
-        <div id="orientation-guide" class="config-panel" style="margin-top: 16px;">
-          <h3>Device Orientation Guide</h3>
-          <div style="display: flex; flex-wrap: wrap; gap: 16px;">
-            <div style="flex: 1; min-width: 200px;">
-              <h4>Device Axes</h4>
-              <ul>
-                <li><strong style="color:#ff0000">X-axis (Red):</strong> Left/Right</li>
-                <li><strong style="color:#00ff00">Y-axis (Green):</strong> Up/Down</li>
-                <li><strong style="color:#0000ff">Z-axis (Blue):</strong> Forward/Backward</li>
-              </ul>
+            <div class="config-group">
+              <div class="config-title">Photo Scrolling Preview</div>
+              <div class="punch-info">
+                <p style="font-size: 1.2em;"><strong>For a <span class="weak">weak</span> punch:</strong> <span id="weak-photo-count">0</span> photos</p>
+                <p style="font-size: 1.2em;"><strong>For a <span class="normal">normal</span> punch:</strong> <span id="normal-photo-count">0</span> photos</p>
+                <p style="font-size: 1.2em;"><strong>For a <span class="strong">strong</span> punch:</strong> <span id="strong-photo-count">0</span> photos</p>
+              </div>
             </div>
-            <div style="flex: 1; min-width: 200px;">
-              <h4>Rotation Angles</h4>
-              <ul>
-                <li><strong>α (alpha):</strong> Rotation around Z-axis (compass)</li>
-                <li><strong>β (beta):</strong> Rotation around X-axis (tilt forward/back)</li>
-                <li><strong>γ (gamma):</strong> Rotation around Y-axis (tilt left/right)</li>
-              </ul>
+
+            <div class="config-group">
+              <div class="config-title">Device Orientation Guide</div>
+              <div class="orientation-info" style="display: flex; justify-content: space-between;">
+                <div style="flex: 1; min-width: 200px;">
+                  <h4 style="font-size: 1.2em;">Device Axes</h4>
+                  <ul>
+                    <li><strong style="color:#D23D2D; font-size: 1.1em;">X-axis (Red):</strong> Left/Right</li>
+                    <li><strong style="color:#468e58; font-size: 1.1em;">Y-axis (Green):</strong> Up/Down</li>
+                    <li><strong style="color:#6767ffd9; font-size: 1.1em;">Z-axis (Blue):</strong> Forward/Backward</li>
+                  </ul>
+                </div>
+                <div style="flex: 1; min-width: 200px;">
+                  <h4 style="font-size: 1.2em;">Rotation Angles</h4>
+                  <ul>
+                    <li><strong style="font-size: 1.1em;">α (alpha):</strong> Rotation around Z-axis (compass)</li>
+                    <li><strong style="font-size: 1.1em;">β (beta):</strong> Rotation around X-axis (tilt forward/back)</li>
+                    <li><strong style="font-size: 1.1em;">γ (gamma):</strong> Rotation around Y-axis (tilt left/right)</li>
+                  </ul>
+                </div>
+              </div>
+              <div style="margin-top: 10px;">
+                <p style="font-size: 1.1em;"><small>When the device is in its standard orientation, α=0° points north, β=0° is level with horizon, γ=0° is upright.</small></p>
+              </div>
             </div>
-          </div>
-          <div style="margin-top: 10px;">
-            <p><small>When the device is in its standard orientation, α=0° points north, β=0° is level with horizon, γ=0°
-                is upright.</small></p>
-          </div>
+            
+         
         </div>
       </div>
     </div>
@@ -560,7 +574,7 @@
     <div id="data-container" class="collapsible">  
        <!-- Punch Classification Visualization -->
        <div class="punch-visualization">
-        <h3>Punch Classification Visualization</h3>
+        <h3>Punch Visualization</h3>
         <div class="punch-meter">
           <div class="punch-bar-container">
             <div class="punch-bar" id="current-punch-strength"></div>
@@ -595,7 +609,7 @@
           <p id="orientation-absolute">false</p>
         </div>
       </div>
-      <div id="data-container" class="collapsible">  <div class="panel-title" onclick="togglePanel(this)">Debug Data & Photo Scrolling Preview <span class="toggle-icon">+</span></div>  <div class="collapsible-content">      <div class="message-controls">
+      <div id="data-container" class="collapsible">  <div class="panel-title" onclick="togglePanel(this)">Data Preview Options <span class="toggle-icon">+</span></div>  <div class="collapsible-content">      <div class="message-controls">
         <div class="message-filters">
           <label>
             <input type="checkbox" id="filter-punch" checked> Punches
@@ -680,7 +694,7 @@
     // Initialize Three.js
     function initThreeJs() {
       scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x1C1C1E);
+      scene.background = new THREE.Color(0x2C2C2E);
 
       camera = new THREE.PerspectiveCamera(75, phoneContainer.clientWidth / phoneContainer.clientHeight, 0.1, 1000);
       camera.position.z = 7;
@@ -708,7 +722,7 @@
       scene.add(phoneGroup);
 
       // Phone body
-      const phoneGeometry = new THREE.BoxGeometry(2, 4, 0.2);
+      const phoneGeometry = new THREE.BoxGeometry(3, 6, 0.3); // Increased size
       const phoneMaterial = new THREE.MeshPhongMaterial({
         color: 0x333333,
         shininess: 30
@@ -717,13 +731,13 @@
       phoneGroup.add(phoneModel);
 
       // Phone screen - place it slightly in front to be visible
-      const screenGeometry = new THREE.BoxGeometry(1.8, 3.6, 0.01);
+      const screenGeometry = new THREE.BoxGeometry(2.7, 5.4, 0.015); // Increased size
       const screenMaterial = new THREE.MeshPhongMaterial({
         color: 0x1a1a1a,
         shininess: 100
       });
       const screen = new THREE.Mesh(screenGeometry, screenMaterial);
-      screen.position.z = 0.11;
+      screen.position.z = 0.165; // Adjusted position to match increased size
       phoneModel.add(screen);
 
       // Add a marker for the top of the phone to help with orientation
@@ -750,7 +764,7 @@
 
       // X-axis (red) - right/left
       const xAxisGeometry = new THREE.CylinderGeometry(axisWidth, axisWidth, axisLength, 8);
-      const xAxisMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+      const xAxisMaterial = new THREE.MeshBasicMaterial({ color: 0xD23D2D });
       const xAxis = new THREE.Mesh(xAxisGeometry, xAxisMaterial);
       xAxis.rotation.z = -Math.PI / 2; // Align with device x-axis
       xAxis.position.x = axisLength / 2;
@@ -764,7 +778,7 @@
 
       // Y-axis (green) - up/down
       const yAxisGeometry = new THREE.CylinderGeometry(axisWidth, axisWidth, axisLength, 8);
-      const yAxisMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+      const yAxisMaterial = new THREE.MeshBasicMaterial({ color: 0x468e58 });
       const yAxis = new THREE.Mesh(yAxisGeometry, yAxisMaterial);
       yAxis.position.y = axisLength / 2;
       axesGroup.add(yAxis);
@@ -776,7 +790,7 @@
 
       // Z-axis (blue) - toward/away from screen
       const zAxisGeometry = new THREE.CylinderGeometry(axisWidth, axisWidth, axisLength, 8);
-      const zAxisMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+      const zAxisMaterial = new THREE.MeshBasicMaterial({ color: 0x007BFF });
       const zAxis = new THREE.Mesh(zAxisGeometry, zAxisMaterial);
       zAxis.rotation.x = Math.PI / 2; // Align with device z-axis
       zAxis.position.z = axisLength / 2;
@@ -789,14 +803,14 @@
       axesGroup.add(zTip);
 
       // Add labels
-      axesGroup.add(createLabel('X', new THREE.Vector3(axisLength + 0.3, 0, 0), '#ff0000'));
-      axesGroup.add(createLabel('Y', new THREE.Vector3(0, axisLength + 0.3, 0), '#00ff00'));
-      axesGroup.add(createLabel('Z', new THREE.Vector3(0, 0, axisLength + 0.3), '#0000ff'));
+      axesGroup.add(createLabel('X', new THREE.Vector3(axisLength + 0.3, 0, 0), '#D23D2D'));
+      axesGroup.add(createLabel('Y', new THREE.Vector3(0, axisLength + 0.3, 0), '#468e58'));
+      axesGroup.add(createLabel('Z', new THREE.Vector3(0, 0, axisLength + 0.3), '#6767ffd9'));
 
       // Add rotation descriptors
-      axesGroup.add(createLabel('α', new THREE.Vector3(0, 0, axisLength + 0.6), '#0000ff', 'Z-axis'));
-      axesGroup.add(createLabel('β', new THREE.Vector3(axisLength + 0.6, 0, 0), '#ff0000', 'X-axis'));
-      axesGroup.add(createLabel('γ', new THREE.Vector3(0, axisLength + 0.6, 0), '#00ff00', 'Y-axis'));
+      axesGroup.add(createLabel('α', new THREE.Vector3(0, 0, axisLength + 0.6), '#6767ffd9', 'Z-axis'));
+      axesGroup.add(createLabel('β', new THREE.Vector3(axisLength + 0.6, 0, 0), '#D23D2D', 'X-axis'));
+      axesGroup.add(createLabel('γ', new THREE.Vector3(0, axisLength + 0.6, 0), '#468e58', 'Y-axis'));
     }
 
     // Modify the createLabel function to include optional description
@@ -840,8 +854,8 @@
 
     function connect() {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/debug`;
-
+     // const wsUrl = `${protocol}//${window.location.host}/ws/debug`;
+const wsUrl = 'https://192.168.1.22:3000/ws/debug'
       console.log('Connecting to WebSocket at:', wsUrl);
 
       ws = new WebSocket(wsUrl);
