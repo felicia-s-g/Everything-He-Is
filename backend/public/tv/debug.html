@@ -11,11 +11,11 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       margin: 0;
       padding: 20px;
-      background-color: #FAFAFA;
+      background-color: #1C1C1E;
       display: flex;
       flex-direction: column;
       height: 80vh;
-      color: #333;
+      color: #F2F2F7;
     }
 
     .container {
@@ -26,10 +26,10 @@
 
     .visualization-container {
       flex: 1;
-      background: white;
+      background: #2C2C2E;
       padding: 16px;
       border-radius: 16px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -53,10 +53,10 @@
     #data-container {
       flex: 1;
       height: 700px;
-      background-color: white;
+      background-color: #2C2C2E;
       padding: 16px;
       border-radius: 16px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
       overflow-y: auto;
     }
 
@@ -70,25 +70,25 @@
     }
 
     .connected {
-      background: #E6F4EA;
-      color: #256029;
+      background: #34C759;
+      color: #1C1C1E;
     }
 
     .disconnected {
-      background: #FCE8E6;
-      color: #A52714;
+      background: #FF3B30;
+      color: #1C1C1E;
     }
 
     .message {
       padding: 10px;
-      border-bottom: 1px solid #EEE;
+      border-bottom: 1px solid #3A3A3C;
       word-wrap: break-word;
       font-size: 14px;
-      color: #555;
+      color: #F2F2F7;
     }
 
     .timestamp {
-      color: #AAA;
+      color: #8E8E93;
       font-size: 12px;
       padding-bottom: 2px;
     }
@@ -97,8 +97,9 @@
       display: flex;
       justify-content: space-between;
       margin-top: 24px;
+      margin-bottom: 24px;
       width: 100%;
-      background: #F8F9FA;
+      background: #3A3A3C;
       padding: 12px;
       border-radius: 12px;
     }
@@ -112,23 +113,14 @@
       margin: 0;
       font-size: 14px;
       font-weight: 500;
-      color: #666;
+      color: #8E8E93;
     }
 
     .sensor-value p {
       margin: 5px 0;
       font-size: 20px;
       font-weight: 600;
-      color: #222;
-    }
-
-    .config-panel {
-      margin-top: 20px;
-      padding: 16px;
-      background-color: #FFF;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-      width: 100%;
+      color: #F2F2F7;
     }
 
     .config-controls {
@@ -151,15 +143,17 @@
     .config-control input {
       width: 100%;
       padding: 8px;
-      border: 1px solid #EEE;
+      border: 1px solid #3A3A3C;
       border-radius: 4px;
+      background-color: #1C1C1E;
+      color: #F2F2F7;
     }
 
     button {
       width: 100%;
       padding: 10px;
       background-color: #007BFF;
-      color: #FFF;
+      color: #F2F2F7;
       border: none;
       border-radius: 4px;
       cursor: pointer;
@@ -169,15 +163,6 @@
 
     button:hover {
       background-color: #0069d9;
-    }
-
-    .punch-visualization {
-      margin-top: 24px;
-      padding: 16px;
-      background-color: #FFF;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-      width: 100%;
     }
 
     .punch-meter {
@@ -201,20 +186,20 @@
     }
 
     .punch-threshold.weak {
-      color: #28a745;
+      color: #34C759;
     }
 
     .punch-threshold.normal {
-      color: #fd7e14;
+      color: #FF9500;
     }
 
     .punch-threshold.strong {
-      color: #dc3545;
+      color: #FF3B30;
     }
 
     .punch-bar-container {
       height: 20px;
-      background-color: #EEE;
+      background-color: #3A3A3C;
       border-radius: 10px;
       overflow: hidden;
     }
@@ -226,15 +211,15 @@
     }
 
     .punch-bar.weak {
-      background-color: #28a745;
+      background-color: #34C759;
     }
 
     .punch-bar.normal {
-      background-color: #fd7e14;
+      background-color: #FF9500;
     }
 
     .punch-bar.strong {
-      background-color: #dc3545;
+      background-color: #FF3B30;
     }
 
     .punch-info {
@@ -242,22 +227,22 @@
     }
 
     .punch-info .weak {
-      color: #28a745;
+      color: #34C759;
       font-weight: bold;
     }
 
     .punch-info .normal {
-      color: #fd7e14;
+      color: #FF9500;
       font-weight: bold;
     }
 
     .punch-info .strong {
-      color: #dc3545;
+      color: #FF3B30;
       font-weight: bold;
     }
 
     .config-group {
-      border: 1px solid #eee;
+      border: 1px solid #3A3A3C;
       border-radius: 8px;
       padding: 12px;
       margin-bottom: 16px;
@@ -266,7 +251,7 @@
     .config-title {
       font-weight: 600;
       margin-bottom: 12px;
-      color: #555;
+      color: #8E8E93;
     }
 
     .message-controls {
@@ -294,47 +279,45 @@
       display: block;
     }
 
-    /* Message type styling */
     .message-content.punch {
       font-weight: 500;
     }
 
     .message-content.punch-weak {
-      color: #28a745;
+      color: #34C759;
       font-weight: bold;
     }
 
     .message-content.punch-normal {
-      color: #fd7e14;
+      color: #FF9500;
       font-weight: bold;
     }
 
     .message-content.punch-strong {
-      color: #dc3545;
+      color: #FF3B30;
       font-weight: bold;
     }
 
     .message-content.system {
-      color: #6c757d;
+      color: #8E8E93;
       font-style: italic;
     }
 
     .message-content.error {
-      color: #dc3545;
+      color: #FF3B30;
       font-weight: bold;
     }
 
     .message-content.acceleration,
     .message-content.orientation {
-      color: #6c757d;
+      color: #8E8E93;
       font-family: monospace;
       font-size: 0.9em;
     }
 
-    /* Clear button styling */
     #clear-messages {
       background-color: #6c757d;
-      color: white;
+      color: #F2F2F7;
       border: none;
       border-radius: 4px;
       padding: 6px 12px;
@@ -347,8 +330,8 @@
 
     .calibrate-button {
       margin-bottom: 16px;
-      background-color: #4CAF50;
-      color: white;
+      background-color: #34C759;
+      color: #1C1C1E;
       border: none;
       padding: 8px 16px;
       border-radius: 4px;
@@ -356,7 +339,52 @@
     }
 
     .calibrate-button:hover {
-      background-color: #45a049;
+      background-color: #28A745;
+    }
+
+    .collapsible .collapsible-content {
+      display: none;
+      overflow: hidden;
+      transition: max-height 0.3s ease-out, padding 0.3s ease-out;
+    }
+
+    .collapsible.active .collapsible-content {
+      display: block;
+    }
+
+    .panel-title {
+      cursor: pointer;
+      font-weight: bold;
+      padding: 10px;
+      background: #2C2C2E;
+      border-radius: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: background 0.2s ease-in-out;
+    }
+
+    .panel-title:hover {
+      background: #3A3A3C;
+    }
+
+    .toggle-icon {
+      font-size: 16px;
+      font-weight: bold;
+    }
+
+    .clear-button {
+      background-color: #6c757d;
+      color: #F2F2F7;
+      border: none;
+      border-radius: 4px;
+      padding: 6px 12px;
+      cursor: pointer;
+      float: right;
+    }
+
+    .clear-button:hover {
+      background-color: #5a6268;
     }
   </style>
 </head>
@@ -372,7 +400,7 @@
       <!-- Add source ID dropdown -->
       <div style="width: 100%; margin-bottom: 16px;">
         <label for="source-id-selector" style="display: block; margin-bottom: 8px;">Source ID:</label>
-        <select id="source-id-selector" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+        <select id="source-id-selector" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #3A3A3C; background-color: #1C1C1E; color: #F2F2F7;">
           <option value="all">All Sources</option>
           <!-- Source IDs will be populated dynamically -->
         </select>
@@ -491,10 +519,47 @@
         </div>
 
         <button id="apply-config">Apply Configuration</button>
-      </div>
 
-      <!-- Punch Classification Visualization -->
-      <div class="punch-visualization">
+        <div class="punch-visualization">
+          <h3>Photo Scrolling Preview</h3>
+          <div class="punch-info">
+            <p>For a <span class="weak">weak</span> punch: <span id="weak-photo-count">0</span> photos</p>
+            <p>For a <span class="normal">normal</span> punch: <span id="normal-photo-count">0</span> photos</p>
+            <p>For a <span class="strong">strong</span> punch: <span id="strong-photo-count">0</span> photos</p>
+          </div>
+        </div>
+
+        <div id="orientation-guide" class="config-panel" style="margin-top: 16px;">
+          <h3>Device Orientation Guide</h3>
+          <div style="display: flex; flex-wrap: wrap; gap: 16px;">
+            <div style="flex: 1; min-width: 200px;">
+              <h4>Device Axes</h4>
+              <ul>
+                <li><strong style="color:#ff0000">X-axis (Red):</strong> Left/Right</li>
+                <li><strong style="color:#00ff00">Y-axis (Green):</strong> Up/Down</li>
+                <li><strong style="color:#0000ff">Z-axis (Blue):</strong> Forward/Backward</li>
+              </ul>
+            </div>
+            <div style="flex: 1; min-width: 200px;">
+              <h4>Rotation Angles</h4>
+              <ul>
+                <li><strong>α (alpha):</strong> Rotation around Z-axis (compass)</li>
+                <li><strong>β (beta):</strong> Rotation around X-axis (tilt forward/back)</li>
+                <li><strong>γ (gamma):</strong> Rotation around Y-axis (tilt left/right)</li>
+              </ul>
+            </div>
+          </div>
+          <div style="margin-top: 10px;">
+            <p><small>When the device is in its standard orientation, α=0° points north, β=0° is level with horizon, γ=0°
+                is upright.</small></p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="data-container" class="collapsible">  
+       <!-- Punch Classification Visualization -->
+       <div class="punch-visualization">
         <h3>Punch Classification Visualization</h3>
         <div class="punch-meter">
           <div class="punch-bar-container">
@@ -509,15 +574,6 @@
         <div class="punch-info">
           <p>Last Punch: <span id="last-punch-value">None</span></p>
           <p>Classification: <span id="last-punch-classification">None</span></p>
-        </div>
-      </div>
-
-      <div class="punch-visualization">
-        <h3>Photo Scrolling Preview</h3>
-        <div class="punch-info">
-          <p>For a <span class="weak">weak</span> punch: <span id="weak-photo-count">0</span> photos</p>
-          <p>For a <span class="normal">normal</span> punch: <span id="normal-photo-count">0</span> photos</p>
-          <p>For a <span class="strong">strong</span> punch: <span id="strong-photo-count">0</span> photos</p>
         </div>
       </div>
 
@@ -539,37 +595,7 @@
           <p id="orientation-absolute">false</p>
         </div>
       </div>
-
-      <!-- Add this near the top of the page body, after the phone container -->
-      <div id="orientation-guide" class="config-panel" style="margin-top: 16px;">
-        <h3>Device Orientation Guide</h3>
-        <div style="display: flex; flex-wrap: wrap; gap: 16px;">
-          <div style="flex: 1; min-width: 200px;">
-            <h4>Device Axes</h4>
-            <ul>
-              <li><strong style="color:#ff0000">X-axis (Red):</strong> Left/Right</li>
-              <li><strong style="color:#00ff00">Y-axis (Green):</strong> Up/Down</li>
-              <li><strong style="color:#0000ff">Z-axis (Blue):</strong> Forward/Backward</li>
-            </ul>
-          </div>
-          <div style="flex: 1; min-width: 200px;">
-            <h4>Rotation Angles</h4>
-            <ul>
-              <li><strong>α (alpha):</strong> Rotation around Z-axis (compass)</li>
-              <li><strong>β (beta):</strong> Rotation around X-axis (tilt forward/back)</li>
-              <li><strong>γ (gamma):</strong> Rotation around Y-axis (tilt left/right)</li>
-            </ul>
-          </div>
-        </div>
-        <div style="margin-top: 10px;">
-          <p><small>When the device is in its standard orientation, α=0° points north, β=0° is level with horizon, γ=0°
-              is upright.</small></p>
-        </div>
-      </div>
-    </div>
-
-    <div id="data-container">
-      <div class="message-controls">
+      <div id="data-container" class="collapsible">  <div class="panel-title" onclick="togglePanel(this)">Debug Data & Photo Scrolling Preview <span class="toggle-icon">+</span></div>  <div class="collapsible-content">      <div class="message-controls">
         <div class="message-filters">
           <label>
             <input type="checkbox" id="filter-punch" checked> Punches
@@ -586,9 +612,8 @@
           <label>
             <input type="checkbox" id="filter-orientation"> Orientation
           </label>
-        </div>
-        <button id="clear-messages">Clear Messages</button>
-      </div>
+  </div>        </div>
+    <button id="clear-messages" class="clear-button">Clear Messages</button>      </div>
       <div id="message-list"></div>
     </div>
   </div>
@@ -655,7 +680,7 @@
     // Initialize Three.js
     function initThreeJs() {
       scene = new THREE.Scene();
-      scene.background = new THREE.Color(0xffffff);
+      scene.background = new THREE.Color(0x1C1C1E);
 
       camera = new THREE.PerspectiveCamera(75, phoneContainer.clientWidth / phoneContainer.clientHeight, 0.1, 1000);
       camera.position.z = 7;
@@ -1394,3 +1419,11 @@
 </body>
 
 </html>
+  <script>
+    function togglePanel(panel) {
+      const parent = panel.parentElement;
+      parent.classList.toggle("active");
+      const icon = panel.querySelector(".toggle-icon");
+      icon.textContent = parent.classList.contains("active") ? "−" : "+";
+    }
+  </script>
