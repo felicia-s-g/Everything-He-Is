@@ -20,7 +20,7 @@ body {
   justify-content: center;
   align-items: center;
   position: relative;
-  perspective: 1500px;
+  perspective: 2000px;
   transform: rotate(var(--ui-rotation));
   transition: transform 0.5s ease, width 0.5s ease, height 0.5s ease, top 0.5s ease, left 0.5s ease;
   transform-origin: center center;
@@ -31,14 +31,18 @@ body {
   height: 100vh;
   object-fit: contain;
   position: absolute;
-  transition: transform 0.1s ease-out, opacity 0.5s ease-in-out;
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease-in-out;
   transform-origin: center;
   opacity: 1;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  will-change: transform, opacity;
 }
 
 .image-slide.flying-away {
-  transform: translateX(100vw) rotateY(40deg) scale(1.1);
+  transform: perspective(1800px) translateX(60vw) translateZ(-50px) rotateY(12deg) scale(0.95);
   opacity: 0;
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.4s ease-out;
 }
 
 #rotate-button {

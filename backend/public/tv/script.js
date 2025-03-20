@@ -8,6 +8,8 @@ let PUNCH_COOLDOWN_MS = 300; // Shorter cooldown period between punches for more
 const imageContainer = document.getElementById("image-container"); // Make this global
 let currentRotation = 0; // Track the current rotation in degrees
 let skewAmount = 0; // Default to no skew
+let perspectiveAmount = 1000; // Default perspective depth
+let rotateXAmount = 0; // Default X rotation for 3D effect
 
 // Source ID tracking
 const sourceIds = new Set();
@@ -23,9 +25,9 @@ let config = {
     maxValue: 40,
     minThreshold: 2,
     photoScroll: {
-      baseMultiplier: 1.0,
-      scalingFactor: 0.2,
-      maxPhotos: 10,
+      baseMultiplier: 1.5,
+      scalingFactor: 0.4,
+      maxPhotos: 15,
     },
     accelWeights: {
       x: 1.0,
@@ -50,20 +52,23 @@ let syncState = {
 
 // Get the seed value from the server's sync counter or URL parameters
 function getSeed() {
-  // If we have a server-provided counter, use that
-  if (syncState.syncCounter !== null) {
-    console.log(`Using server sync counter as seed: ${syncState.syncCounter}`);
-    return syncState.syncCounter;
-  }
-
   // Fallback to URL parameters if no server counter
   const urlParams = new URLSearchParams(window.location.search);
   let seed = urlParams.get("seed");
 
   // If no seed provided in URL, generate one
   if (!seed) {
-    seed = Math.floor(Math.random() * 1000000).toString();
-    console.log(`Generated random seed: ${seed}`);
+    // If we have a server-provided counter, use that
+    if (syncState.syncCounter !== null) {
+      console.log(
+        `Using server sync counter as seed: ${syncState.syncCounter}`,
+      );
+      seed = syncState.syncCounter;
+    } else {
+      // Generate a random seed
+      seed = Math.floor(Math.random() * 1000000).toString();
+      console.log(`Generated random seed: ${seed}`);
+    }
   } else {
     console.log(`Using URL seed: ${seed}`);
   }
@@ -73,6 +78,20 @@ function getSeed() {
   if (skewParam !== null && !isNaN(parseFloat(skewParam))) {
     skewAmount = parseFloat(skewParam);
     console.log(`Using skew amount: ${skewAmount} for 3D effect`);
+  }
+
+  // Get perspective depth parameter if available
+  const perspectiveParam = urlParams.get("perspective");
+  if (perspectiveParam !== null && !isNaN(parseFloat(perspectiveParam))) {
+    perspectiveAmount = parseFloat(perspectiveParam);
+    console.log(`Using perspective depth: ${perspectiveAmount}px`);
+  }
+
+  // Get X rotation parameter if available
+  const rotateXParam = urlParams.get("rotateX");
+  if (rotateXParam !== null && !isNaN(parseFloat(rotateXParam))) {
+    rotateXAmount = parseFloat(rotateXParam);
+    console.log(`Using X rotation: ${rotateXAmount}deg`);
   }
 
   return seed;
@@ -169,25 +188,51 @@ function nextImage(dynamicTimeout = 350) {
       if (skewAmount !== 0) {
         // Apply both zoom and skew for 3D effect
         const zoomFactor = nextImage.dataset.currentZoom;
-        nextImage.style.transform = `perspective(1000px) 
-           rotateY(${skewAmount}deg) 
-           scale3d(${zoomFactor}, ${zoomFactor}, 1)`;
+        // Add subtle breathing animation
+        const breathingAmplitude = 0.015;
+        const breathingSpeed = 1.5; // Seconds per cycle
+        const breathingOffset = Math.sin(Date.now() / (1000 * breathingSpeed)) *
+          breathingAmplitude;
+
+        // Get stored skew values or use defaults
+        const storedSkew = nextImage.dataset.currentSkew || skewAmount;
+        const storedRotateX = nextImage.dataset.currentRotateX || rotateXAmount;
+
+        // Apply full 3D transform preserving any existing effects
+        nextImage.style.transform = `perspective(${perspectiveAmount}px) 
+           rotateY(${storedSkew}deg) 
+           rotateX(${storedRotateX}deg)
+           translate3d(0, 0, ${breathingOffset * 10}px)
+           scale3d(${zoomFactor + breathingOffset}, ${
+          zoomFactor + breathingOffset
+        }, 1)`;
       } else {
-        // Just apply the zoom
-        nextImage.style.transform = `scale(${nextImage.dataset.currentZoom})`;
+        // Apply simple zoom with subtle breathing
+        const zoomFactor = nextImage.dataset.currentZoom;
+        const breathingOffset = Math.sin(Date.now() / (1000 * 1.5)) * 0.015;
+        nextImage.style.transform = `scale(${zoomFactor + breathingOffset})`;
       }
     } else {
       // Apply default transform - either with or without skew
       if (skewAmount !== 0) {
-        nextImage.style.transform = `perspective(1000px) 
+        // Add subtle breathing animation even to default state
+        const breathingOffset = Math.sin(Date.now() / (1000 * 1.5)) * 0.015;
+        nextImage.style.transform = `perspective(${perspectiveAmount}px) 
            rotateY(${skewAmount}deg) 
-           scale3d(1, 1, 1)`;
+           rotateX(${rotateXAmount}deg)
+           translate3d(0, 0, ${breathingOffset * 10}px)
+           scale3d(${1 + breathingOffset}, ${1 + breathingOffset}, 1)`;
       } else {
-        nextImage.style.transform = "scale(1)";
+        // Simple scale with subtle breathing
+        const breathingOffset = Math.sin(Date.now() / (1000 * 1.5)) * 0.015;
+        nextImage.style.transform = `scale(${1 + breathingOffset})`;
       }
       nextImage.dataset.currentZoom = "1";
     }
   }
+
+  // Use a shorter timeout for faster transitions
+  const actualTimeout = Math.min(dynamicTimeout, 300);
 
   setTimeout(() => {
     const oldIndex = selectedIndex;
@@ -206,12 +251,12 @@ function nextImage(dynamicTimeout = 350) {
     next.style.opacity = "1";
     console.log("Made next image visible");
 
-    // Hide the previous image only AFTER the next one is visible
+    // Hide the previous image only AFTER the next one is visible - use shorter delay for faster transitions
     setTimeout(() => {
       currentImage.style.display = "none";
       console.log("Hidden previous image");
-    }, 50); // Short delay to ensure smooth transition
-  }, dynamicTimeout);
+    }, 30); // Shorter delay to ensure smoother transitions
+  }, actualTimeout);
 }
 
 // Initialize WebSocket connections and set up counter refresh
@@ -374,6 +419,28 @@ function loadImages() {
     return;
   }
 
+  // Read URL parameters before applying to images
+  const urlParams = new URLSearchParams(window.location.search);
+
+  // Update global 3D parameters from URL if they exist
+  const skewParam = urlParams.get("skew");
+  if (skewParam !== null && !isNaN(parseFloat(skewParam))) {
+    skewAmount = parseFloat(skewParam);
+    console.log(`Applied skew from URL: ${skewAmount}`);
+  }
+
+  const perspectiveParam = urlParams.get("perspective");
+  if (perspectiveParam !== null && !isNaN(parseFloat(perspectiveParam))) {
+    perspectiveAmount = parseFloat(perspectiveParam);
+    console.log(`Applied perspective from URL: ${perspectiveAmount}`);
+  }
+
+  const rotateXParam = urlParams.get("rotateX");
+  if (rotateXParam !== null && !isNaN(parseFloat(rotateXParam))) {
+    rotateXAmount = parseFloat(rotateXParam);
+    console.log(`Applied rotateX from URL: ${rotateXAmount}`);
+  }
+
   images.forEach((image, index) => {
     let img = document.createElement("img");
     img.src = image.url;
@@ -389,9 +456,10 @@ function loadImages() {
     if (index === selectedIndex) {
       // First image is visible - apply 3D effect if skew is enabled
       if (skewAmount !== 0) {
-        img.style.transform = `perspective(1000px) 
-           rotateY(${skewAmount}deg) 
-           scale3d(1, 1, 1)`;
+        img.style.transform = `perspective(${perspectiveAmount}px)
+        rotateY(${skewAmount}deg)
+        rotateX(${rotateXAmount}deg)
+        scale3d(1, 1, 1)`;
       } else {
         img.style.transform = "scale(1)";
       }
@@ -403,9 +471,10 @@ function loadImages() {
       img.style.display = "none";
       // Still init the transform to ensure consistency when they appear
       if (skewAmount !== 0) {
-        img.style.transform = `perspective(1000px) 
-           rotateY(${skewAmount}deg) 
-           scale3d(1, 1, 1)`;
+        img.style.transform = `perspective(${perspectiveAmount}px)
+        rotateY(${skewAmount}deg)
+        rotateX(${rotateXAmount}deg)
+        scale3d(1, 1, 1)`;
       } else {
         img.style.transform = "scale(1)";
       }
@@ -565,6 +634,19 @@ function forceBasedScroll(acceleration) {
     maxPhotos,
   );
 
+  // Enhanced intensity calculation - provide progressive scaling for stronger punches
+  if (acceleration > config.punch.strongThreshold) {
+    // Add an additional boost for stronger punches using a progressive curve
+    const intensityBoost = Math.pow(
+      (acceleration - config.punch.strongThreshold) / 10,
+      1.5,
+    );
+    imagesToScroll = Math.min(
+      Math.round(imagesToScroll + intensityBoost),
+      maxPhotos,
+    );
+  }
+
   // Ensure at least one photo is scrolled
   imagesToScroll = Math.max(1, imagesToScroll);
 
@@ -594,65 +676,97 @@ function forceBasedScroll(acceleration) {
   };
 }
 
-// Function to zoom/enlarge images based on beta rotation
-function tiltBasedZoom(betaRotation) {
-  // Skip if no images
-  if (!images.length) return;
+// Function to update zoom level based on device tilt
+function tiltBasedZoom(betaRotation, alphaRotation = 0, gammaRotation = 0) {
+  // Get the current image
+  const currentImage = document.querySelectorAll(".image-slide")[selectedIndex];
+  if (!currentImage) return;
 
-  const beta = typeof betaRotation === "number"
-    ? betaRotation
-    : parseFloat(betaRotation);
-  if (isNaN(beta)) return;
+  // Normalize the beta rotation (device tilt)
+  // Beta ranges from -180 to 180, most comfortable viewing angle is around beta = 0
 
-  // Ensure beta rotation is a number and has a reasonable value
-  let adjustedBeta = 180 - Math.abs(beta);
-  let sign = 1;
-
+  let sign = 1; // Initialize sign variable with default value
   if (betaRotation < 0) {
     sign = -1;
   }
+  let adjustedBeta = betaRotation;
+  if (adjustedBeta > 90) adjustedBeta = 180 - adjustedBeta;
+  if (adjustedBeta < -90) adjustedBeta = -180 - adjustedBeta;
 
-  // Calculate zoom factor based on adjusted beta and sign
-  // Map adjustedBeta (0-180) to a zoom range of 0.5 to 1.5
-  // When device is flat (adjustedBeta = 0), zoomFactor = 1.0
-  const minZoom = 0.3;
-  const maxZoom = 1.7;
-  const zoomRange = maxZoom - minZoom;
-  const normalizedBeta = adjustedBeta / 180; // Convert to 0-1 range
-  let zoomFactor = 1.0 + (normalizedBeta * zoomRange * 0.5 * -sign); // Negated sign to reverse zoom direction
+  // Normalize alpha rotation (0-360, compass direction)
+  const adjustedAlpha = ((alphaRotation % 360) + 360) % 360;
 
-  // New logic: resting position is at adjustedBeta 0 degrees
-  // Map the beta range to appropriate zoom factors
+  // Normalize gamma rotation (-90 to 90, left-right tilt)
+  let adjustedGamma = gammaRotation;
+  if (adjustedGamma > 90) adjustedGamma = 180 - adjustedGamma;
+  if (adjustedGamma < -90) adjustedGamma = -180 - adjustedGamma;
 
-  // Apply zoom to the currently selected image
-  const currentImage = document.querySelectorAll(".image-slide")[selectedIndex];
-  if (currentImage) {
-    // Apply responsive transition with 3D transform for better performance
-    currentImage.style.transition = "transform 0.15s ease-out";
+  // Calculate zoom factor - higher tilt = more zoom, but keep it subtle
+  const baseZoom = 1.0; // Base zoom level (no zoom)
+  const maxZoom = 1.2; // Reduced maximum zoom for subtlety
+  // Use sign to determine zoom in or out
+  const zoomFactor = sign < 0
+    ? baseZoom + Math.abs(adjustedBeta / 90) * (maxZoom - baseZoom) // Zoom in for positive tilt
+    : baseZoom - Math.abs(adjustedBeta / 90) * (baseZoom - (2 - maxZoom)); // Zoom out for negative tilt
 
-    // If skew is enabled, apply a perspective transform for 3D effect
-    if (skewAmount !== 0) {
-      // Calculate skew based on tilt - more tilt means more skew
-      // This creates a dynamic 3D effect that changes with device tilt
-      const tiltFactor = Math.abs(adjustedBeta / 90); // 0 to 1 based on how far from neutral
-      const dynamicSkew = skewAmount * tiltFactor;
+  // Store current zoom level in dataset for persistence during animations
+  currentImage.dataset.currentZoom = zoomFactor;
 
-      // Apply 3D transform with perspective, skew, and scale
-      currentImage.style.transform = `perspective(1000px) 
-         rotateY(${dynamicSkew}deg) 
-         scale3d(${zoomFactor}, ${zoomFactor}, 1)`;
-    } else {
-      // Original zoom behavior without skew
-      currentImage.style.transform = `scale(${zoomFactor})`;
-    }
+  // Apply responsive transition with 3D transform for better performance
+  currentImage.style.transition = "transform 0.2s ease-out";
 
-    // Store the current zoom value for potential use elsewhere
-    currentImage.dataset.currentZoom = zoomFactor;
-    // Store skew value if needed elsewhere
-    if (skewAmount !== 0) {
-      currentImage.dataset.currentSkew = skewAmount;
-    }
+  // Apply dynamic breathing effect using time-based oscillation
+  const breathingAmplitude = 0.015; // Subtle breathing effect
+  const breathingSpeed = 1.5; // Seconds per cycle
+  const breathingOffset = Math.sin(Date.now() / (1000 * breathingSpeed)) *
+    breathingAmplitude;
+
+  // If skew is enabled, apply a perspective transform for 3D effect
+  if (skewAmount !== 0) {
+    // This creates a subtle dynamic 3D effect that changes with device tilt
+    const tiltMultiplier = 0.8; // Reduced multiplier for subtler effects
+    const betaFactor = (adjustedBeta / 90) * tiltMultiplier; // Reduced range based on tilt
+
+    // Add alpha and gamma factors (compass direction and device roll)
+    const alphaFactor = ((adjustedAlpha / 180) - 1) * 0.4; // -0.4 to 0.4 range
+    const gammaFactor = (adjustedGamma / 90) * 0.6; // -0.6 to 0.6 range
+
+    // Dynamic adjustments based on all three axes
+    const dynamicSkew = skewAmount + (betaFactor * 3) + (gammaFactor * 2); // Primary skew from beta + gamma
+    const dynamicRotateX = rotateXAmount + (betaFactor * 1.5) +
+      (breathingOffset * 2); // X rotation from beta + breathing
+    const dynamicRotateY = (alphaFactor * 2) + (breathingOffset * 1.5); // Y rotation from alpha + breathing
+    const dynamicRotateZ = (gammaFactor * 1.2) + (betaFactor * 0.3); // Z rotation primarily from gamma
+
+    // Perspective depth varies with both beta and gamma
+    const dynamicPerspective = perspectiveAmount -
+      (Math.abs(betaFactor) * 100) - (Math.abs(gammaFactor) * 50);
+
+    // Apply refined 3D transform with all axes and breathing effect
+    currentImage.style.transform = `
+      perspective(${dynamicPerspective}px)
+      rotateY(${dynamicSkew + dynamicRotateY}deg)
+      rotateX(${dynamicRotateX}deg)
+      rotateZ(${dynamicRotateZ}deg)
+      translate3d(${betaFactor * -2 + gammaFactor * 3}px, ${
+      betaFactor * 1 + alphaFactor * 2
+    }px, ${breathingOffset * 10}px)
+      scale3d(${zoomFactor + breathingOffset}, ${
+      zoomFactor + breathingOffset
+    }, 1)`;
+
+    // Store current values for reference in other functions
+    currentImage.dataset.currentSkew = dynamicSkew;
+    currentImage.dataset.currentRotateX = dynamicRotateX;
+  } else {
+    // Simple zoom if 3D effects are disabled, but still add breathing effect
+    currentImage.style.transform = `
+      scale(${zoomFactor + breathingOffset}) 
+      rotate(${(gammaRotation / 90) * 1.5}deg)`;
   }
+
+  // Return the calculated zoom factor for other functions to use
+  return zoomFactor;
 }
 
 function getAccelerationMagnitude(accelerationData) {
@@ -683,6 +797,11 @@ function getHighestAcceleration(accelerationDataArray) {
 function advancePhotos(count = 1) {
   if (!images.length) return;
 
+  // Add this at the beginning of the advancePhotos function
+  console.log(
+    `advancePhotos called with count=${count}, currentIndex=${selectedIndex}, images.length=${images.length}`,
+  );
+
   // Set flag to prevent interference with scroll detection
   // but allow zoom to continue working
   isAutoScrolling = true;
@@ -699,23 +818,24 @@ function advancePhotos(count = 1) {
     }
 
     // Calculate dynamic timeout - faster for multiple images
-    const transitionSpeed = Math.max(150, 350 - (count * 30));
+    // Make transitions faster as count increases, with a lower minimum
+    const transitionSpeed = Math.max(100, 350 - (count * 40));
+
+    // For very high counts (high intensity), make transitions even faster
+    const speedAdjustment = count > 5
+      ? Math.max(50, transitionSpeed - 50)
+      : transitionSpeed;
 
     // Trigger the image transition with appropriate speed
-    nextImage(transitionSpeed);
+    nextImage(speedAdjustment);
 
-    // Decrement counter and set up next transition
+    // Decrement counter and set up next transition with a smaller gap for smoother transitions
     remainingPhotos--;
-    setTimeout(advanceNext, transitionSpeed + 50);
+    setTimeout(advanceNext, speedAdjustment + 30);
   }
 
   // Start the sequence
   advanceNext();
-
-  // Add this at the beginning of the advancePhotos function
-  console.log(
-    `advancePhotos called with count=${count}, currentIndex=${selectedIndex}, images.length=${images.length}`,
-  );
 }
 
 // Initialize the application
@@ -737,6 +857,9 @@ window.addEventListener("DOMContentLoaded", () => {
 
       // Initialize state sync after WebSocket is connected
       setTimeout(initStateSync, 1000);
+
+      // Start the continuous breathing animation once images are loaded
+      requestAnimationFrame(startBreathingAnimation);
     });
   });
 
@@ -746,6 +869,9 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Initialize the sync indicator
   initSyncIndicator();
+
+  // Initialize 3D effect controls
+  init3DControls();
 
   // Setup click event listener for manual navigation
   document.addEventListener("click", (event) => {
@@ -768,12 +894,99 @@ window.addEventListener("DOMContentLoaded", () => {
   window.testScroll = testScroll;
   window.testPunch = testPunch;
   window.testSkew = testSkew;
+  window.test3D = test3D;
 
   // Refresh configuration periodically (every 5 minutes)
   setInterval(fetchConfiguration, 5 * 60 * 1000);
 
   console.log("TV interface initialized successfully");
 });
+
+// Initialize 3D effect controls
+function init3DControls() {
+  const effectPresets = document.getElementById("effect-presets");
+  const effectToggle = document.getElementById("effect-toggle");
+
+  if (!effectPresets || !effectToggle) return;
+
+  // Define all available presets to use throughout the function
+  const presets = {
+    default: { skew: 5, perspective: 1500, rotateX: 0 },
+    minimal: { skew: 2, perspective: 2000, rotateX: 0.5 },
+    gentle: { skew: 8, perspective: 1800, rotateX: 1 },
+    medium: { skew: 12, perspective: 1200, rotateX: -2 },
+    clean: { skew: 7, perspective: 1600, rotateX: 0 },
+    elegant: { skew: -5, perspective: 2200, rotateX: 1 },
+    flatScreen: { skew: 0, perspective: 2000, rotateX: 0 },
+    classic: { skew: 15, perspective: 1000, rotateX: -3 },
+  };
+
+  // Update effect based on preset selection
+  effectPresets.addEventListener("change", function () {
+    test3D(this.value);
+  });
+
+  // Toggle 3D effect on/off
+  effectToggle.addEventListener("change", function () {
+    if (this.checked) {
+      // Enable 3D - use the currently selected preset
+      test3D(effectPresets.value);
+    } else {
+      // Disable 3D effects
+      testSkew(0, 2000, 0); // Set all 3D parameters to neutral values
+    }
+  });
+
+  // Check URL parameters to set initial UI state
+  const urlParams = new URLSearchParams(window.location.search);
+  const skewParam = urlParams.get("skew");
+  const perspectiveParam = urlParams.get("perspective") || perspectiveAmount;
+  const rotateXParam = urlParams.get("rotateX") || rotateXAmount;
+
+  // If skew is explicitly set to 0, disable 3D effect
+  if (skewParam !== null && parseFloat(skewParam) === 0) {
+    effectToggle.checked = false;
+  } // If any URL parameters are present, find matching preset or closest match
+  else if (
+    skewParam !== null || perspectiveParam !== null || rotateXParam !== null
+  ) {
+    // Parse the URL parameters
+    const skew = skewParam !== null ? parseFloat(skewParam) : skewAmount;
+    const perspective = perspectiveParam !== null
+      ? parseFloat(perspectiveParam)
+      : perspectiveAmount;
+    const rotateX = rotateXParam !== null
+      ? parseFloat(rotateXParam)
+      : rotateXAmount;
+
+    // Find the closest preset to the URL parameters
+    let closestPreset = "default";
+    let minDifference = Infinity;
+
+    for (const [preset, values] of Object.entries(presets)) {
+      // Calculate how closely this preset matches the URL parameters
+      const difference = Math.abs(values.skew - skew) +
+        Math.abs(values.perspective - perspective) / 200 +
+        Math.abs(values.rotateX - rotateX) * 2;
+
+      if (difference < minDifference) {
+        minDifference = difference;
+        closestPreset = preset;
+      }
+    }
+
+    // Set the dropdown to the closest preset
+    effectPresets.value = closestPreset;
+
+    // Make sure the toggle is checked if there are any 3D effects
+    effectToggle.checked = skew !== 0;
+  } // If no URL parameters, apply default preset
+  else {
+    // No need to explicitly call test3D here since the 3D effect
+    // is already applied during image loading
+    effectPresets.value = "default";
+  }
+}
 
 // Replace the stub function with a proper implementation
 function fetchConfiguration() {
@@ -938,22 +1151,26 @@ function handleWebSocketMessage(event) {
         handlePunch(data);
       }
     } else if (data.type === "orientation") {
-      // Extract beta/y rotation from orientation data
-      // In device orientation, beta is the front-to-back tilt (y-axis)
+      // Extract all rotation values from orientation data
       const beta = data.orientation.y;
+      const alpha = data.orientation.x || 0; // Alpha is rotation around vertical axis
+      const gamma = data.orientation.z || 0; // Gamma is left-right tilt
 
-      // Use beta rotation for zoom effect
-      tiltBasedZoom(beta);
+      // Use all three axes for dynamic effects
+      tiltBasedZoom(beta, alpha, gamma);
     } else if (data.type === "deviceOrientation") {
-      // Extract beta rotation (front-to-back tilt)
+      // Extract all rotation values
       // Some systems use different property names
-      const beta = data.orientation.beta || data.orientation.y;
+      const beta = data.orientation.beta || data.orientation.y || 0;
+      const alpha = data.orientation.alpha || data.orientation.x || 0;
+      const gamma = data.orientation.gamma || data.orientation.z || 0;
 
-      // Use beta rotation for zoom effect
-      tiltBasedZoom(beta);
+      // Use all three axes for dynamic effects
+      tiltBasedZoom(beta, alpha, gamma);
     } else if (data.type === "tilt") {
       // For backward compatibility, if any code still sends generic tilt values
-      tiltBasedZoom(data.value * 180); // Scale to beta-equivalent range
+      // We'll just use beta for now since we don't have alpha/gamma
+      tiltBasedZoom(data.value * 180);
     } else if (data.type === "sync") {
       // Update sync counter from sync messages
       if (data.syncCounter !== undefined) {
@@ -982,23 +1199,27 @@ function testScroll(count = 1) {
 // Make it globally accessible
 window.testScroll = testScroll;
 
-// Test function to simulate a punch - can be called from console
+// Add a test function to simulate a punch with a given strength
 function testPunch(strength = 10) {
   console.log(`Testing punch with strength ${strength}`);
 
-  // Create a test punch data object that mimics the data from the WebSocket
-  const testPunchData = {
-    type: "punch",
-    timestamp: Date.now(),
+  // Create a sample data object to simulate a punch message
+  const punchData = {
     acceleration: strength,
-    value: strength, // Include both formats for testing
+    sourceId: "test",
   };
 
-  // Process the test punch
-  handlePunch(testPunchData);
+  // Process the punch using the main handler
+  const result = handlePunch(punchData);
 
-  // Return a helper message for the console
-  return `Sent test punch with strength ${strength}. Try different values like: testPunch(5), testPunch(15), testPunch(25)`;
+  // Log the expected scrolling behavior
+  console.log(
+    `Test punch of intensity ${strength} would scroll ${
+      result?.imagesToScroll || "unknown"
+    } images`,
+  );
+
+  return result;
 }
 
 // Make it globally accessible for console testing
@@ -1006,25 +1227,42 @@ window.testPunch = testPunch;
 
 // Add function to handle URL parameter changes
 function setupURLChangeListener() {
-  // Remove all logic for handling URL changes with index parameter
-  // Only keep skew parameter handling
+  // Listen for URL parameter changes
   window.addEventListener("popstate", function () {
     const urlParams = new URLSearchParams(window.location.search);
-    const skewParam = urlParams.get("skew");
 
+    // Handle skew parameter
+    const skewParam = urlParams.get("skew");
     if (skewParam !== null && !isNaN(parseFloat(skewParam))) {
       skewAmount = parseFloat(skewParam);
       console.log(`URL skew changed to ${skewAmount}, updating display`);
+    }
 
-      // Apply to current image
-      const currentImage =
-        document.querySelectorAll(".image-slide")[selectedIndex];
-      if (currentImage) {
-        const zoomFactor = currentImage.dataset.currentZoom || 1;
-        currentImage.style.transform = `perspective(1000px) 
-           rotateY(${skewAmount}deg) 
-           scale3d(${zoomFactor}, ${zoomFactor}, 1)`;
-      }
+    // Handle perspective parameter
+    const perspectiveParam = urlParams.get("perspective");
+    if (perspectiveParam !== null && !isNaN(parseFloat(perspectiveParam))) {
+      perspectiveAmount = parseFloat(perspectiveParam);
+      console.log(
+        `URL perspective changed to ${perspectiveAmount}, updating display`,
+      );
+    }
+
+    // Handle rotateX parameter
+    const rotateXParam = urlParams.get("rotateX");
+    if (rotateXParam !== null && !isNaN(parseFloat(rotateXParam))) {
+      rotateXAmount = parseFloat(rotateXParam);
+      console.log(`URL rotateX changed to ${rotateXAmount}, updating display`);
+    }
+
+    // Apply to current image with all 3D parameters
+    const currentImage =
+      document.querySelectorAll(".image-slide")[selectedIndex];
+    if (currentImage) {
+      const zoomFactor = currentImage.dataset.currentZoom || 1;
+      currentImage.style.transform = `perspective(${perspectiveAmount}px) 
+         rotateY(${skewAmount}deg) 
+         rotateX(${rotateXAmount}deg) 
+         scale3d(${zoomFactor}, ${zoomFactor}, 1)`;
     }
   });
 }
@@ -1276,31 +1514,103 @@ function initSyncIndicator() {
 }
 
 // Add function to test the 3D skew effect
-function testSkew(amount = 15) {
-  console.log(`Testing skew with amount ${amount}`);
+function testSkew(amount = 15, perspective = 1000, rotateX = 0) {
+  console.log(
+    `Testing 3D effect with skew: ${amount}, perspective: ${perspective}, rotateX: ${rotateX}`,
+  );
 
   // Update the global skew amount
   skewAmount = amount;
+  perspectiveAmount = perspective;
+  rotateXAmount = rotateX;
 
   // Update URL without reloading page
   const newUrl = new URL(window.location);
   newUrl.searchParams.set("skew", amount.toString());
+  newUrl.searchParams.set("perspective", perspective.toString());
+  newUrl.searchParams.set("rotateX", rotateX.toString());
   window.history.replaceState({}, "", newUrl);
 
   // Apply effect to current image
   const currentImage = document.querySelectorAll(".image-slide")[selectedIndex];
   if (currentImage) {
     const zoomFactor = currentImage.dataset.currentZoom || 1;
-    currentImage.style.transform = `perspective(1000px) 
+    currentImage.style.transform = `perspective(${perspective}px) 
        rotateY(${amount}deg) 
+       rotateX(${rotateX}deg) 
        scale3d(${zoomFactor}, ${zoomFactor}, 1)`;
   }
 
-  return `Set skew amount to ${amount}. Try different values like: testSkew(30), testSkew(-15), testSkew(0)`;
+  // Update UI controls to match new settings
+  const effectToggle = document.getElementById("effect-toggle");
+  const effectPresets = document.getElementById("effect-presets");
+
+  if (effectToggle && effectPresets) {
+    // Update toggle state based on whether 3D is enabled
+    effectToggle.checked = amount !== 0;
+
+    // Try to find a matching preset
+    const presets = {
+      default: { skew: 5, perspective: 1500, rotateX: 0 },
+      minimal: { skew: 2, perspective: 2000, rotateX: 0.5 },
+      gentle: { skew: 8, perspective: 1800, rotateX: 1 },
+      medium: { skew: 12, perspective: 1200, rotateX: -2 },
+      clean: { skew: 7, perspective: 1600, rotateX: 0 },
+      elegant: { skew: -5, perspective: 2200, rotateX: 1 },
+      flatScreen: { skew: 0, perspective: 2000, rotateX: 0 },
+      classic: { skew: 15, perspective: 1000, rotateX: -3 },
+    };
+
+    // Find closest preset
+    let closestPreset = "default";
+    let minDifference = Infinity;
+
+    for (const [preset, values] of Object.entries(presets)) {
+      const difference = Math.abs(values.skew - amount) +
+        Math.abs(values.perspective - perspective) / 200 +
+        Math.abs(values.rotateX - rotateX) * 2;
+
+      if (difference < minDifference) {
+        minDifference = difference;
+        closestPreset = preset;
+      }
+    }
+
+    effectPresets.value = closestPreset;
+  }
+
+  return `Set 3D effect: skew=${amount}, perspective=${perspective}, rotateX=${rotateX}. 
+  Try different values like: testSkew(30, 800, 5), testSkew(-15, 1200, -3), testSkew(0)`;
 }
 
-// Make testSkew globally accessible for console testing
+// New function for testing different 3D presets - updated with more subtle presets
+function test3D(preset = "default") {
+  const presets = {
+    default: { skew: 5, perspective: 1500, rotateX: 0 }, // More subtle default
+    minimal: { skew: 2, perspective: 2000, rotateX: 0.5 }, // Very subtle effect
+    gentle: { skew: 8, perspective: 1800, rotateX: 1 }, // Gentle effect
+    medium: { skew: 12, perspective: 1200, rotateX: -2 }, // Medium intensity
+    clean: { skew: 7, perspective: 1600, rotateX: 0 }, // Clean look without X rotation
+    elegant: { skew: -5, perspective: 2200, rotateX: 1 }, // Elegant backwards tilt
+    flatScreen: { skew: 0, perspective: 2000, rotateX: 0 }, // No 3D effect
+    classic: { skew: 15, perspective: 1000, rotateX: -3 }, // Original stronger effect
+  };
+
+  // Get the preset values or use default if preset not found
+  const { skew, perspective, rotateX } = presets[preset] || presets.default;
+
+  // Apply the preset using testSkew
+  testSkew(skew, perspective, rotateX);
+
+  // Return info about available presets
+  return `Applied 3D preset: ${preset}. 
+  Available presets: ${Object.keys(presets).join(", ")}
+  Example: test3D('gentle') or test3D('minimal')`;
+}
+
+// Make test functions globally accessible for console testing
 window.testSkew = testSkew;
+window.test3D = test3D;
 
 // Function to update the sync counter and possibly reload/reshuffle images
 function updateSyncCounter(counter) {
@@ -1460,4 +1770,52 @@ async function fetchSyncCounter() {
   } catch (error) {
     console.error("Error fetching sync counter:", error);
   }
+}
+
+// Add this function to animate breathing effect continuously
+function startBreathingAnimation() {
+  // Get the current image
+  const currentImage = document.querySelectorAll(".image-slide")[selectedIndex];
+  if (!currentImage) return;
+
+  // Only animate if we have at least some 3D effects enabled
+  if (
+    currentImage.style.transform &&
+    currentImage.style.transform.includes("perspective")
+  ) {
+    // Get current zoom and transform values
+    const zoomFactor = parseFloat(currentImage.dataset.currentZoom || "1");
+    const storedSkew = parseFloat(
+      currentImage.dataset.currentSkew || skewAmount.toString(),
+    );
+    const storedRotateX = parseFloat(
+      currentImage.dataset.currentRotateX || rotateXAmount.toString(),
+    );
+
+    // Create subtle breathing animation
+    const breathingAmplitude = 0.015;
+    const breathingSpeed = 1.5; // Seconds per cycle
+    const breathingOffset = Math.sin(Date.now() / (1000 * breathingSpeed)) *
+      breathingAmplitude;
+
+    // Apply subtle movement based on time
+    currentImage.style.transform = `
+      perspective(${perspectiveAmount}px)
+      rotateY(${storedSkew + (breathingOffset * 3)}deg)
+      rotateX(${storedRotateX + (breathingOffset * 2)}deg)
+      translate3d(${breathingOffset * 5}px, ${breathingOffset * 3}px, ${
+      breathingOffset * 10
+    }px)
+      scale3d(${zoomFactor + breathingOffset}, ${
+      zoomFactor + breathingOffset
+    }, 1)`;
+  } else if (currentImage.style.transform) {
+    // For simple transforms, just add subtle breathing to scale
+    const zoomFactor = parseFloat(currentImage.dataset.currentZoom || "1");
+    const breathingOffset = Math.sin(Date.now() / (1000 * 1.5)) * 0.015;
+    currentImage.style.transform = `scale(${zoomFactor + breathingOffset})`;
+  }
+
+  // Request next animation frame
+  requestAnimationFrame(startBreathingAnimation);
 }

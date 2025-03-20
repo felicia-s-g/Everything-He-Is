@@ -74,6 +74,23 @@
       border-radius: 4px;
       color: #000;
     }
+    
+    #audio-controls {
+      position: absolute;
+      bottom: 15px;
+      left: 15px;
+      z-index: 1000;
+      background-color: rgba(0, 0, 0, 0.7);
+      padding: 10px;
+      border-radius: 5px;
+      color: white;
+      transition: opacity 0.3s ease;
+      opacity: 0.5;
+    }
+    
+    #audio-controls:hover {
+      opacity: 1;
+    }
   </style>
 </head>
 
@@ -89,6 +106,42 @@
       <!-- Source IDs will be populated dynamically -->
     </select>
   </div>
+  
+  <!-- Audio element -->
+  <audio id="background-music" autoplay loop>
+    <source src="MASC_TRACK.mp3" type="audio/mpeg">
+    Your browser does not support the audio element.
+  </audio>
+  
+  <!-- Audio controls -->
+  <div id="audio-controls">
+    <button id="toggle-audio">Pause</button>
+  </div>
+  
+  <script>
+    // Audio control functionality
+    document.addEventListener('DOMContentLoaded', function() {
+      const audio = document.getElementById('background-music');
+      const toggleButton = document.getElementById('toggle-audio');
+      
+      // Start playing audio
+      audio.play().catch(e => {
+        console.log('Auto-play prevented:', e);
+        toggleButton.textContent = 'Play';
+      });
+      
+      // Toggle audio play/pause
+      toggleButton.addEventListener('click', function() {
+        if (audio.paused) {
+          audio.play();
+          this.textContent = 'Pause';
+        } else {
+          audio.pause();
+          this.textContent = 'Play';
+        }
+      });
+    });
+  </script>
 </body>
 
 </html>
