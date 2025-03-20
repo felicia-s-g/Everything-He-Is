@@ -74,22 +74,88 @@
       border-radius: 4px;
       color: #000;
     }
-    
+
     #audio-controls {
-      position: absolute;
-      bottom: 15px;
-      left: 15px;
-      z-index: 1000;
-      background-color: rgba(0, 0, 0, 0.7);
-      padding: 10px;
-      border-radius: 5px;
-      color: white;
+      /* 3D Effect Controls */
+      #effect-controls {
+        position: absolute;
+        bottom: 15px;
+        left: 15px;
+        z-index: 1000;
+        background-color: rgba(0, 0, 0, 0.7);
+        padding: 10px;
+        border-radius: 5px;
+        color: white;
+        transition: opacity 0.3s ease;
+        opacity: 0.5;
+      }
+
+      #audio-controls:hover {
+        opacity: 1;
+      }
+
+      display: flex;
+      align-items: center;
       transition: opacity 0.3s ease;
       opacity: 0.5;
+      gap: 10px;
     }
-    
-    #audio-controls:hover {
+
+    #effect-controls:hover {
       opacity: 1;
+    }
+
+    #effect-presets {
+      padding: 5px;
+      background-color: rgba(255, 255, 255, 0.8);
+      border: none;
+      border-radius: 4px;
+      color: #000;
+    }
+
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 40px;
+      height: 20px;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 20px;
+    }
+
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 2px;
+      bottom: 2px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+
+    input:checked+.toggle-slider {
+      background-color: #2196F3;
+    }
+
+    input:checked+.toggle-slider:before {
+      transform: translateX(20px);
     }
   </style>
 </head>
@@ -106,32 +172,32 @@
       <!-- Source IDs will be populated dynamically -->
     </select>
   </div>
-  
+
   <!-- Audio element -->
   <audio id="background-music" autoplay loop>
     <source src="MASC_TRACK.mp3" type="audio/mpeg">
     Your browser does not support the audio element.
   </audio>
-  
+
   <!-- Audio controls -->
   <div id="audio-controls">
     <button id="toggle-audio">Pause</button>
   </div>
-  
+
   <script>
     // Audio control functionality
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
       const audio = document.getElementById('background-music');
       const toggleButton = document.getElementById('toggle-audio');
-      
+
       // Start playing audio
       audio.play().catch(e => {
         console.log('Auto-play prevented:', e);
         toggleButton.textContent = 'Play';
       });
-      
+
       // Toggle audio play/pause
-      toggleButton.addEventListener('click', function() {
+      toggleButton.addEventListener('click', function () {
         if (audio.paused) {
           audio.play();
           this.textContent = 'Pause';
@@ -142,6 +208,29 @@
       });
     });
   </script>
+
+  <!-- 3D Effect Controls -->
+  <div id="effect-controls">
+    <label for="effect-presets">3D Effect:</label>
+    <select id="effect-presets">
+      <option value="default">Default</option>
+      <option value="minimal">Minimal</option>
+      <option value="gentle">Gentle</option>
+      <option value="dynamic">Dynamic</option>
+      <option value="depth">Depth</option>
+      <option value="book">Book</option>
+      <option value="portrait">Portrait</option>
+      <option value="flatScreen">Flat</option>
+      <option value="classic">Classic</option>
+      <option value="debug">Debug</option>
+    </select>
+
+    <label class="toggle-switch">
+      <input type="checkbox" id="effect-toggle" checked>
+      <span class="toggle-slider"></span>
+    </label>
+    <span>Enable 3D</span>
+  </div>
 </body>
 
 </html>
