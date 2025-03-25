@@ -15,85 +15,24 @@
       background-color: #000;
     }
 
-    #image-container {
-      position: relative;
-      width: 100vw;
-      height: 100vh;
-      overflow: hidden;
-      background-color: #000;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      perspective: 1000px;
-      transition: transform 0.5s ease;
-    }
-
-    .image-slide {
-      position: absolute;
-      max-width: 90%;
-      max-height: 90%;
-      object-fit: contain;
-      transition: transform 0.08s cubic-bezier(0.6, 0.04, 0.98, 0.335), opacity 0.2s cubic-bezier(0.6, 0.04, 0.98, 0.335);
-      transform-origin: center center;
-      will-change: transform, opacity;
-      backface-visibility: hidden;
-      -webkit-backface-visibility: hidden;
-    }
-
     .flying-away {
-      transform: scale(0.05) rotate(25deg) translateY(-1200px);
+      transform: scale(0.05) translateY(-1200px);
       opacity: 0;
       transition: all 0.25s cubic-bezier(0.6, 0.04, 0.98, 0.335);
     }
 
-    /* Source ID Selector Styles */
-    #source-id-container {
+    /* Source ID Selector Styles - Moved to style.css */
+
+    /* 3D Effect Controls */
+    #effect-controls {
       position: absolute;
-      top: 15px;
-      right: 15px;
+      bottom: 15px;
+      left: 15px;
       z-index: 1000;
       background-color: rgba(0, 0, 0, 0.7);
       padding: 10px;
       border-radius: 5px;
       color: white;
-      display: flex;
-      align-items: center;
-      transition: opacity 0.3s ease;
-      opacity: 0.5;
-    }
-
-    #source-id-container:hover {
-      opacity: 1;
-    }
-
-    #source-id-selector {
-      margin-left: 10px;
-      padding: 5px;
-      background-color: rgba(255, 255, 255, 0.8);
-      border: none;
-      border-radius: 4px;
-      color: #000;
-    }
-
-    #audio-controls {
-      /* 3D Effect Controls */
-      #effect-controls {
-        position: absolute;
-        bottom: 15px;
-        left: 15px;
-        z-index: 1000;
-        background-color: rgba(0, 0, 0, 0.7);
-        padding: 10px;
-        border-radius: 5px;
-        color: white;
-        transition: opacity 0.3s ease;
-        opacity: 0.5;
-      }
-
-      #audio-controls:hover {
-        opacity: 1;
-      }
-
       display: flex;
       align-items: center;
       transition: opacity 0.3s ease;
@@ -168,69 +107,15 @@
   <div id="source-id-container">
     <label for="source-id-selector">Source:</label>
     <select id="source-id-selector">
+      <option value="felicia">bag</option>
       <option value="all">All Sources</option>
       <!-- Source IDs will be populated dynamically -->
     </select>
   </div>
 
-  <!-- Audio element -->
-  <audio id="background-music" autoplay loop>
-    <source src="MASC_TRACK.mp3" type="audio/mpeg">
-    Your browser does not support the audio element.
-  </audio>
-
-  <!-- Audio controls -->
-  <div id="audio-controls">
-    <button id="toggle-audio">Pause</button>
-  </div>
-
   <script>
-    // Audio control functionality
-    document.addEventListener('DOMContentLoaded', function () {
-      const audio = document.getElementById('background-music');
-      const toggleButton = document.getElementById('toggle-audio');
-
-      // Start playing audio
-      audio.play().catch(e => {
-        console.log('Auto-play prevented:', e);
-        toggleButton.textContent = 'Play';
-      });
-
-      // Toggle audio play/pause
-      toggleButton.addEventListener('click', function () {
-        if (audio.paused) {
-          audio.play();
-          this.textContent = 'Pause';
-        } else {
-          audio.pause();
-          this.textContent = 'Play';
-        }
-      });
-    });
+    // Initialize test buttons after page loads
   </script>
-
-  <!-- 3D Effect Controls -->
-  <div id="effect-controls">
-    <label for="effect-presets">3D Effect:</label>
-    <select id="effect-presets">
-      <option value="default">Default</option>
-      <option value="minimal">Minimal</option>
-      <option value="gentle">Gentle</option>
-      <option value="dynamic">Dynamic</option>
-      <option value="depth">Depth</option>
-      <option value="book">Book</option>
-      <option value="portrait">Portrait</option>
-      <option value="flatScreen">Flat</option>
-      <option value="classic">Classic</option>
-      <option value="debug">Debug</option>
-    </select>
-
-    <label class="toggle-switch">
-      <input type="checkbox" id="effect-toggle" checked>
-      <span class="toggle-slider"></span>
-    </label>
-    <span>Enable 3D</span>
-  </div>
 </body>
 
 </html>

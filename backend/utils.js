@@ -9,9 +9,6 @@ export function validateAccelerationData(sensorData) {
     return;
   }
 
-  // Removed fallback sourceId generation
-  console.log("sensorData", sensorData);
-
   return sensorData;
 }
 
@@ -26,9 +23,6 @@ export function validateOrientationData(sensorData) {
     return;
   }
 
-  // Removed fallback sourceId generation
-
-  // Ensure the absolute property is present, but allow it to be false
   if (sensorData.orientation.absolute === undefined) {
     // Set default to false if not provided
     sensorData.orientation.absolute = false;

@@ -3,10 +3,32 @@ let ws;
 let reconnectAttempts = 0;
 const baseReconnectDelay = 1000; // 1 second
 let isConnected = false;
-let maxReconnectDelay = 30000; // Cap delay at 30 seconds
-// Generate a random source ID for this client instance
-const sourceId = Math.random().toString(36).substring(2, 15) +
-  Math.random().toString(36).substring(2, 15);
+let maxReconnectDelay = 5000; // Cap delay at 5 seconds
+
+// Throttling variables
+let lastAccelUpdate = 0;
+let lastOrientationUpdate = 0;
+const updateInterval = 50; // Send updates every 100ms
+
+// Get deviceId from URL query parameters or generate a random one
+function getDeviceId() {
+  // Parse URL query parameters
+  const urlParams = new URLSearchParams(window.location.search);
+  const deviceIdParam = urlParams.get("deviceId");
+
+  // If deviceId is in query params, use that
+  if (deviceIdParam) {
+    return deviceIdParam;
+  }
+
+  // Otherwise, try to get from localStorage or generate a new random ID
+  return localStorage.getItem("deviceSourceId") ||
+    (Math.random().toString(36).substring(2, 15) +
+      Math.random().toString(36).substring(2, 15));
+}
+
+// Get or generate source ID and store in variable
+let sourceId = null;
 
 // Function to update connection status UI
 function updateConnectionStatus(status, message) {
@@ -24,6 +46,7 @@ function updateConnectionStatus(status, message) {
 }
 
 function connectWebSocket() {
+  // Set sourceId if it's not already set
   // Update status to connecting
   updateConnectionStatus("connecting", "Connecting...");
 
@@ -45,10 +68,6 @@ function connectWebSocket() {
     );
   };
 
-  ws.onmessage = (event) => {
-    console.log("Received message:", event.data);
-  };
-
   ws.onerror = (error) => {
     console.error("WebSocket error:", error);
     // Update status to connecting instead of error
@@ -61,9 +80,7 @@ function connectWebSocket() {
 
     // Calculate delay with exponential backoff, but cap it
     let delay = baseReconnectDelay * Math.pow(2, reconnectAttempts);
-    delay = Math.min(delay, maxReconnectDelay); // Cap the delay
-
-    console.log(`Attempting to reconnect in ${delay}ms...`);
+    delay = 1000; // Cap the delay
 
     // Update status to reconnecting
     updateConnectionStatus(
@@ -80,6 +97,12 @@ function connectWebSocket() {
 
 // Initialize connection status as connecting
 document.addEventListener("DOMContentLoaded", () => {
+  // Initialize sourceId as early as possible
+  if (sourceId === null) {
+    sourceId = getDeviceId();
+    console.log(`Using device ID: ${sourceId}`);
+  }
+
   updateConnectionStatus("connecting", "Initializing...");
 
   // Initialize WebSocket connection
@@ -90,12 +113,17 @@ async function getAccel() {
   DeviceMotionEvent.requestPermission().then((response) => {
     if (response == "granted") {
       window.addEventListener("devicemotion", (event) => {
-        if (isConnected && ws.readyState === WebSocket.OPEN) {
+        const now = Date.now();
+        if (
+          isConnected && ws.readyState === WebSocket.OPEN &&
+          now - lastAccelUpdate >= updateInterval
+        ) {
+          lastAccelUpdate = now;
           ws.send(
             JSON.stringify({
               type: "acceleration",
               sourceId: sourceId,
-              timestamp: Date.now(),
+              timestamp: now,
               acceleration: {
                 x: event.acceleration.x,
                 y: event.acceleration.y,
@@ -107,12 +135,17 @@ async function getAccel() {
       });
 
       window.addEventListener("deviceorientation", (event) => {
-        if (isConnected && ws.readyState === WebSocket.OPEN) {
+        const now = Date.now();
+        if (
+          isConnected && ws.readyState === WebSocket.OPEN &&
+          now - lastOrientationUpdate >= updateInterval
+        ) {
+          lastOrientationUpdate = now;
           ws.send(
             JSON.stringify({
               type: "orientation",
               sourceId: sourceId,
-              timestamp: Date.now(),
+              timestamp: now,
               orientation: {
                 x: event.alpha,
                 y: event.beta,

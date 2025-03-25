@@ -6,7 +6,6 @@ const WebSocket = require("ws");
 const cors = require("cors");
 const {
   extractSensorData,
-  getAccelerationIndex,
 } = require("./utils");
 const fs = require("fs");
 const { classifiedPunchDetected } = require("./signals");
@@ -43,8 +42,19 @@ const httpWebsocketsServer = new WebSocket.Server({
 });
 
 // HTTP Routes for serving web pages / script files / images.
-// Serve static files from the public directory
-app.use(express.static(path.join(__dirname, "public")));
+// Set cache time for static assets (1 day in milliseconds)
+const staticOptions = {
+  maxAge: "1d",
+  setHeaders: (res, path) => {
+    // Set longer cache duration for images specifically
+    if (path.match(/\.(jpg|jpeg|png|gif)$/i)) {
+      res.setHeader("Cache-Control", "public, max-age=86400"); // 1 day
+    }
+  },
+};
+
+// Serve static files from the public directory with caching
+app.use(express.static(path.join(__dirname, "public"), staticOptions));
 
 // Route to serve phone interface
 app.get("/phone", (req, res) => {
@@ -80,6 +90,9 @@ app.get("/", (req, res) => {
 
 // Route to return array of strings
 app.get("/api/images", (req, res) => {
+  // Set cache headers for the API response
+  res.set("Cache-Control", "public, max-age=36000"); // Cache for 10 hour
+
   const archivePath = path.join(__dirname, "public", "archive");
 
   fs.readdir(archivePath, (err, files) => {
@@ -136,6 +149,24 @@ app.post("/api/config", (req, res) => {
       error: error.message,
     });
   }
+});
+
+// Route to serve images from archive with explicit caching
+app.get("/archive/:filename", (req, res) => {
+  const filePath = path.join(
+    __dirname,
+    "public",
+    "archive",
+    req.params.filename,
+  );
+
+  // Set strong caching headers for individual image files
+  res.set({
+    "Cache-Control": "public, max-age=604800", // 7 days
+    "Expires": new Date(Date.now() + 604800000).toUTCString(), // 7 days in milliseconds
+  });
+
+  res.sendFile(filePath);
 });
 
 function sendToClients(server, channel, message) {
@@ -205,6 +236,7 @@ function mirrorWebSocketConnections(ws, req, sourceServer, targetServer) {
     ws.on("message", (message) => {
       try {
         const sensorData = extractSensorData(JSON.parse(message.toString()));
+        console.log("sensorData", sensorData);
 
         if (!sensorData) {
           return;
@@ -229,9 +261,16 @@ function mirrorWebSocketConnections(ws, req, sourceServer, targetServer) {
 
     // Handle configuration messages from the debug interface
     ws.on("message", (message) => {
+      console.log("Message received:", message);
       try {
         const data = JSON.parse(message.toString());
 
+        if (data.type === "config") {
+          console.log(data);
+        }
+        if (data.type === "config" && data.tvSettings) {
+          console.log("tvSettings", data.tvSettings);
+        }
         // Handle configuration updates
         if (data.type === "config" && data.punchConfig) {
           // Update the global config through the singleton
@@ -272,43 +311,6 @@ function mirrorWebSocketConnections(ws, req, sourceServer, targetServer) {
 
           ws.send(JSON.stringify(response));
         } // Simple position reset handler
-        else if (data.type === "resetPosition") {
-          // Increment counter on position reset
-          globalSyncCounter++;
-
-          // Send confirmation back to all debug clients
-          const response = {
-            type: "system",
-            message: "Position reset requested",
-            syncCounter: globalSyncCounter,
-          };
-
-          // Only include sourceId if it exists in the original data
-          if (data.sourceId) {
-            response.sourceId = data.sourceId;
-          }
-
-          broadcastToAllClients("/ws/debug", response);
-        } // Simple position calibration handler
-        else if (data.type === "calibratePosition") {
-          // Increment counter on position calibration
-          globalSyncCounter++;
-
-          // Send confirmation back to all debug clients
-          const response = {
-            type: "system",
-            message:
-              "Position calibration requested - this feature has been temporarily disabled",
-            syncCounter: globalSyncCounter,
-          };
-
-          // Only include sourceId if it exists in the original data
-          if (data.sourceId) {
-            response.sourceId = data.sourceId;
-          }
-
-          broadcastToAllClients("/ws/debug", response);
-        }
       } catch (error) {
         console.error("Error processing WebSocket message:", error);
       }
@@ -320,24 +322,6 @@ function mirrorWebSocketConnections(ws, req, sourceServer, targetServer) {
       type: "sync",
       syncCounter: globalSyncCounter,
     }));
-
-    // Handle any messages from UI, though in the simplified model we don't need much interaction
-    ws.on("message", (message) => {
-      try {
-        // We can leave this simple as we're moving to server-controlled synchronization
-        const data = JSON.parse(message.toString());
-        console.log("Received UI signal message:", data);
-
-        // Only consider sourceId if it actually exists
-        if (data.sourceId) {
-          // If needed, send response back with sourceId
-          // This is just a placeholder for any future UI interaction that needs responses
-          console.log("Received message from sourceId:", data.sourceId);
-        }
-      } catch (error) {
-        console.error("Error handling UI signals message:", error);
-      }
-    });
   }
 }
 

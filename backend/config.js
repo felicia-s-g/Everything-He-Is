@@ -4,6 +4,9 @@
 
 // Default configuration for punch detection
 const config = {
+  tv: {
+    calibratedAlpha: 0,
+  },
   punch: {
     weakThreshold: 3,
     normalThreshold: 6,
@@ -29,6 +32,13 @@ const config = {
  * @param {Object} newConfig - New configuration values to merge
  */
 function updateConfig(newConfig) {
+  console.log("Updating config:", newConfig);
+  if (newConfig.tvSettings) {
+    config.tv = {
+      ...config.tv,
+      ...newConfig.tvSettings,
+    };
+  }
   if (newConfig.punch) {
     // Deep merge the punch configuration
     config.punch = {
